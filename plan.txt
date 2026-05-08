@@ -1,0 +1,74 @@
+This document outlines the requirements and design for an AI-powered kitchen operating system tailored for the Indian context (specifically Bengaluru). It bridges the gap between household inventory, meal planning, and cook management.
+
+---
+
+## 1. Problem Statement
+Managing a household kitchen in urban India involves high cognitive load due to three disconnected factors:
+*   **The "What to Cook?" Fatigue:** Decision paralysis despite having a fridge full of food.
+*   **The Communication Gap:** Inability to effectively coordinate with cooks (language barriers, last-minute changes).
+*   **The Food Waste Crisis:** Significant grocery wastage due to forgotten expiry dates and "panic buying" from quick-commerce apps.
+
+**Goal:** Create a central "Kitchen OS" that automates inventory tracking via bill-scanning, suggests meals based on cook-skills and food expiry, and acts as a communication bridge to the cook.
+
+---
+
+## 2. Requirements & Features
+
+### **Phase 1: Core Automation (MVP)**
+*   **Zero-Entry Inventory:** Auto-populate the pantry by snapping photos of grocery bills (Zepto, Blinkit, or local market receipts).
+*   **Expiry Rescue:** AI monitors shelf-life and triggers "Rescue Meal" suggestions to prioritize items near expiry.
+*   **Cook Skill Mapping:** Store a profile of dishes the cook knows to ensure suggestions are realistic.
+*   **WhatsApp Bridge:** Automatically send the chosen daily menu and instructions to the cook via WhatsApp in their native language (Kannada/Hindi).
+
+### **Phase 2: Intelligent Procurement**
+*   **Pre-Market Ping:** Automatically ask the cook what’s running low before the user goes to the market.
+*   **Smart Shopping List:** Generate a list that only includes what is truly missing, cross-referencing current stock.
+
+---
+
+## 3. System Design
+
+### **High-Level Design (HLD)**
+The system follows a **Model Context Protocol (MCP)** architecture to ensure the AI remains grounded in the user's real-time database.
+
+
+
+*   **Frontend (App):** React Native client for the user to scan bills and approve menus.
+*   **MCP Server (Logic Layer):** Standardizes tools (e.g., `update_stock`, `get_expiring_items`) so the LLM can interact with the DB.
+*   **Deterministic Core (PostgreSQL):** The source of truth for inventory, user likes/dislikes, and cook skills.
+*   **Reasoning Engine (Gemini 1.5 Pro):** Processes multimodal inputs (bills) and handles complex meal reasoning.
+*   **WhatsApp Gateway:** Connects the system to the cook's phone.
+
+### **Low-Level Design (LLD)**
+
+#### **A. Database Schema**
+*   **`Inventory` Table:** `item_id`, `canonical_name`, `qty`, `unit`, `estimated_expiry`, `is_manual`.
+*   **`User_Prefs` Table:** `dislikes` (array), `dietary_tags`, `fav_cuisines`.
+*   **`Cook_Profile` Table:** `cook_id`, `dishes_known` (array), `preferred_lang`.
+
+#### **B. The "Fast vs. Deep" Processing Path**
+*   **Fast Path (<500ms):** Simple CRUD operations (e.g., ticking off "Buy Milk" in the market). Handled by the backend API directly.
+*   **Deep Path (5-10s):** Meal reasoning and bill scanning. Requires the LLM to process images and reason through constraints.
+
+---
+
+## 4. Plan of Action
+
+| Phase | Timeline | Key Milestone |
+| :--- | :--- | :--- |
+| **Week 1** | **Foundation** | Set up PostgreSQL DB and basic MCP Server for inventory CRUD. |
+| **Week 2** | **Vision Engine** | Implement Gemini-powered bill scanning to auto-add items to DB. |
+| **Week 3** | **Cook Integration** | Build the WhatsApp Business API bridge and native-language translation. |
+| **Week 4** | **Reasoning Layer** | Develop the "Rescue Meal" logic that combines Expiry + Cook Skills. |
+| **Week 5** | **Frontend (App)** | Build the React Native UI for Android/iOS/Web using Expo. |
+| **Week 6** | **Beta Testing** | Launch "Human-in-the-loop" testing for a single Bangalore household. |
+
+---
+
+### **Technical Stack Summary**
+*   **Mobile:** React Native (Expo)
+*   **Backend:** Node.js / TypeScript
+*   **AI Protocol:** Model Context Protocol (MCP)
+*   **Model:** Gemini 1.5 Pro (Multimodal)
+*   **Database:** Supabase (PostgreSQL)
+*   **Comm:** Twilio/WhatsApp Business API
