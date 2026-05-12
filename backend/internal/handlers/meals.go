@@ -28,6 +28,7 @@ type SmartMeal struct {
 	Name           string   `json:"name"`
 	Description    string   `json:"description"`
 	Ingredients    []string `json:"ingredients"`
+	ItemsToOrder   []string `json:"items_to_order,omitempty"`
 	CookingTime    int      `json:"cooking_time_mins"`
 	Difficulty     string   `json:"difficulty"`
 	WhyThisMeal    string   `json:"why_this_meal"`
@@ -43,6 +44,7 @@ type SmartMealsResponse struct {
 func GetSmartMeals(db *sql.DB, cfg *config.Config) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		userID := getUserID(r)
+		userPrompt := r.URL.Query().Get("prompt")
 
 		inventory := fetchUserInventory(db, userID)
 		cookProfile := fetchUserCookProfile(db, userID)
@@ -58,7 +60,7 @@ func GetSmartMeals(db *sql.DB, cfg *config.Config) http.HandlerFunc {
 			return
 		}
 
-		prompt := buildMealPrompt(inventory, cookProfile, userPrefs)
+		prompt := buildMealPrompt(inventory, cookProfile, userPrefs, userPrompt)
 
 		meals, err := callGeminiForMeals(cfg, prompt)
 		if err != nil {
@@ -163,26 +165,33 @@ func fetchUserPreferences(db *sql.DB, userID string) *services.UserPrefsData {
 	return &up
 }
 
-func buildMealPrompt(inventory []inventoryRow, cook *services.CookProfileData, prefs *services.UserPrefsData) string {
+func buildMealPrompt(inventory []inventoryRow, cook *services.CookProfileData, prefs *services.UserPrefsData, userPrompt string) string {
 	var sb strings.Builder
 
 	sb.WriteString("You are a smart Indian kitchen meal planner. Based on the household's current inventory, suggest meals in 5 categories.\n\n")
 
 	sb.WriteString("## Current Inventory:\n")
 	now := time.Now()
+	var expiringItems []string
 	for _, item := range inventory {
 		expiryInfo := ""
 		if item.Expiry != nil {
 			days := int(item.Expiry.Sub(now).Hours() / 24)
 			if days < 0 {
 				expiryInfo = fmt.Sprintf(" (EXPIRED %d days ago!)", -days)
+				expiringItems = append(expiringItems, item.Name)
 			} else if days <= 3 {
 				expiryInfo = fmt.Sprintf(" (EXPIRING in %d days)", days)
+				expiringItems = append(expiringItems, item.Name)
 			} else {
 				expiryInfo = fmt.Sprintf(" (good for %d days)", days)
 			}
 		}
 		sb.WriteString(fmt.Sprintf("- %s: %.1f %s%s\n", item.Name, item.Qty, item.Unit, expiryInfo))
+	}
+
+	if len(expiringItems) > 0 {
+		sb.WriteString(fmt.Sprintf("\n## EXPIRING/EXPIRED ITEMS (use urgently): %s\n", strings.Join(expiringItems, ", ")))
 	}
 
 	if cook != nil && len(cook.DishesKnown) > 0 {
@@ -219,54 +228,68 @@ func buildMealPrompt(inventory []inventoryRow, cook *services.CookProfileData, p
 		}
 	}
 
-	sb.WriteString(`
-## Instructions:
-Suggest 2 meals per category. Use ONLY ingredients from the inventory above. Focus on Indian/Bangalore household context.
+	if userPrompt != "" {
+		sb.WriteString(fmt.Sprintf("\n## User's Request for This Session:\n%s\n", userPrompt))
+	}
 
-Return ONLY a JSON array with exactly 5 objects, one per category:
+	sb.WriteString(`
+## IMPORTANT RULES FOR EACH CATEGORY:
+
+1. **rescue_meal**: MUST use the expiring/expired items listed above. Use ONLY inventory items. This is urgent.
+2. **meal_of_day**: Use ONLY items already in inventory. Pick the best balanced option.
+3. **most_healthy**, **most_tasty**, **long_lasting**: These are GENERAL suggestions. You may suggest dishes that require items NOT in inventory. For any ingredient NOT in the inventory above, include it in the "items_to_order" array so the user knows what to buy.
+
+## Instructions:
+Suggest 2 meals per category. Focus on Indian household context.
+
+Return ONLY a JSON array with exactly 5 objects:
 
 [
   {
-    "id": "meal_of_day",
-    "title": "Meal of the Day",
-    "description": "Best balanced meal for today",
+    "id": "rescue_meal",
+    "title": "Rescue Meal",
+    "description": "Use expiring items before they go to waste",
     "meals": [
       {
         "name": "...",
         "description": "One line about the dish",
         "ingredients": ["item1", "item2"],
+        "items_to_order": [],
         "cooking_time_mins": 30,
         "difficulty": "easy",
-        "why_this_meal": "Why this is the best pick today",
+        "why_this_meal": "Uses expiring tomatoes and onions",
         "nutrition_notes": "Brief nutrition info"
       }
     ]
   },
   {
+    "id": "meal_of_day",
+    "title": "Meal of the Day",
+    "description": "Best balanced meal using only what you have",
+    "meals": [...]
+  },
+  {
     "id": "most_healthy",
     "title": "Most Healthy",
-    "description": "Nutrient-rich meals from what you have",
+    "description": "Nutrient-rich meals (may need some items ordered)",
     "meals": [...]
   },
   {
     "id": "most_tasty",
     "title": "Most Tasty",
-    "description": "Crowd-pleasers and comfort food",
+    "description": "Crowd-pleasers (may need some items ordered)",
     "meals": [...]
   },
   {
     "id": "long_lasting",
     "title": "Cook Now, Eat Later",
-    "description": "Meals that store well for multiple days",
-    "meals": [...]
-  },
-  {
-    "id": "rescue_meal",
-    "title": "Rescue Meal",
-    "description": "Use expiring items before they go to waste",
+    "description": "Meals that store well (may need some items ordered)",
     "meals": [...]
   }
 ]
+
+For rescue_meal and meal_of_day: "items_to_order" MUST be empty [].
+For most_healthy, most_tasty, long_lasting: list any items NOT in inventory in "items_to_order".
 
 Return ONLY the JSON array, no markdown, no explanation.`)
 

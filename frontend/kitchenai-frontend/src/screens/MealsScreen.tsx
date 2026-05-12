@@ -13,6 +13,7 @@ import {
   ActivityIndicator,
   Surface,
   Divider,
+  TextInput,
 } from 'react-native-paper';
 import * as api from '../services/api';
 
@@ -20,6 +21,7 @@ interface SmartMeal {
   name: string;
   description: string;
   ingredients: string[];
+  items_to_order?: string[];
   cooking_time_mins: number;
   difficulty: string;
   why_this_meal: string;
@@ -62,12 +64,13 @@ export function MealsScreen() {
   const [error, setError] = useState<string | null>(null);
   const [generated, setGenerated] = useState(false);
   const [inventoryCount, setInventoryCount] = useState(0);
+  const [userPrompt, setUserPrompt] = useState('');
 
   const generateMeals = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
-      const result = await api.getSmartMeals();
+      const result = await api.getSmartMeals(userPrompt.trim() || undefined);
       setCategories(result.categories || []);
       setInventoryCount(result.inventory_items_used || 0);
       setGenerated(true);
@@ -76,7 +79,7 @@ export function MealsScreen() {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [userPrompt]);
 
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
@@ -118,6 +121,18 @@ export function MealsScreen() {
               <Chip icon="clock-outline" compact style={styles.ctaChip}>Meal Prep</Chip>
               <Chip icon="alert-circle-outline" compact style={styles.ctaChip}>Rescue</Chip>
             </View>
+            <TextInput
+              mode="outlined"
+              placeholder="Any preference? e.g. something light, no onion today, want biryani..."
+              value={userPrompt}
+              onChangeText={setUserPrompt}
+              multiline
+              numberOfLines={2}
+              style={styles.promptInput}
+              outlineColor="#FFB74D"
+              activeOutlineColor="#FF9800"
+              left={<TextInput.Icon icon="message-text-outline" />}
+            />
             <Button
               mode="contained"
               icon="robot"
@@ -157,18 +172,31 @@ export function MealsScreen() {
 
       {generated && !loading && categories.length > 0 && (
         <>
-          <View style={styles.infoRow}>
-            <Chip icon="food-variant" compact>
-              {inventoryCount} items in inventory
-            </Chip>
-            <Button
-              mode="text"
-              icon="refresh"
-              compact
-              onPress={generateMeals}
-            >
-              Regenerate
-            </Button>
+          <View style={styles.regenerateSection}>
+            <TextInput
+              mode="outlined"
+              placeholder="Change preference and regenerate..."
+              value={userPrompt}
+              onChangeText={setUserPrompt}
+              style={styles.promptInputSmall}
+              outlineColor="#FFB74D"
+              activeOutlineColor="#FF9800"
+              dense
+              right={<TextInput.Icon icon="refresh" onPress={generateMeals} />}
+            />
+            <View style={styles.infoRow}>
+              <Chip icon="food-variant" compact>
+                {inventoryCount} items in inventory
+              </Chip>
+              <Button
+                mode="text"
+                icon="refresh"
+                compact
+                onPress={generateMeals}
+              >
+                Regenerate
+              </Button>
+            </View>
           </View>
 
           {categories.map((category) => (
@@ -236,6 +264,27 @@ export function MealsScreen() {
                         </Chip>
                       ))}
                     </View>
+
+                    {meal.items_to_order && meal.items_to_order.length > 0 && (
+                      <View style={styles.orderSection}>
+                        <Text variant="labelSmall" style={styles.orderLabel}>
+                          Need to order:
+                        </Text>
+                        <View style={styles.ingredientsRow}>
+                          {meal.items_to_order.map((item, i) => (
+                            <Chip
+                              key={i}
+                              compact
+                              icon="cart-outline"
+                              style={styles.orderChip}
+                              textStyle={styles.orderChipText}
+                            >
+                              {item}
+                            </Chip>
+                          ))}
+                        </View>
+                      </View>
+                    )}
 
                     <Surface style={styles.whyBox} elevation={0}>
                       <Text variant="labelSmall" style={styles.whyLabel}>
@@ -327,6 +376,19 @@ const styles = StyleSheet.create({
   },
   ctaChip: {
     height: 32,
+  },
+  promptInput: {
+    width: '100%',
+    marginBottom: 16,
+    backgroundColor: '#fff',
+  },
+  promptInputSmall: {
+    marginHorizontal: 16,
+    marginTop: 12,
+    backgroundColor: '#fff',
+  },
+  regenerateSection: {
+    paddingTop: 4,
   },
   generateBtn: {
     borderRadius: 12,
@@ -440,6 +502,24 @@ const styles = StyleSheet.create({
     color: '#4CAF50',
     marginTop: 8,
     fontStyle: 'italic',
+  },
+  orderSection: {
+    marginBottom: 12,
+  },
+  orderLabel: {
+    color: '#E65100',
+    fontWeight: 'bold',
+    marginBottom: 6,
+  },
+  orderChip: {
+    height: 26,
+    backgroundColor: '#FFF3E0',
+    borderColor: '#FFB74D',
+    borderWidth: 1,
+  },
+  orderChipText: {
+    fontSize: 11,
+    color: '#E65100',
   },
   categoryDivider: {
     marginVertical: 8,

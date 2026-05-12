@@ -261,8 +261,9 @@ export async function sendPreMarketPing(
 
 // ─── Smart Meals (LLM-powered) ────────────────────────────────
 
-export async function getSmartMeals(): Promise<any> {
-  const res = await authFetch(`${API_BASE_URL}/meals/smart`);
+export async function getSmartMeals(userPrompt?: string): Promise<any> {
+  const params = userPrompt ? `?prompt=${encodeURIComponent(userPrompt)}` : '';
+  const res = await authFetch(`${API_BASE_URL}/meals/smart${params}`);
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
   return res.json();
 }
