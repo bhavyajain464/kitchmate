@@ -11,6 +11,9 @@ import {
   WhatsAppResult,
   CookInfo,
   CookProfile,
+  UserProfile,
+  UpdateProfileRequest,
+  UserMemory,
 } from '../types';
 
 const API_BASE_URL = process.env.EXPO_PUBLIC_API_BASE_URL!;
@@ -281,6 +284,40 @@ export async function updateCookProfile(profile: {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(profile),
+  });
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+}
+
+// ─── Profile & Memory ─────────────────────────────────────────
+
+export async function fetchProfile(): Promise<UserProfile> {
+  const res = await authFetch(`${API_BASE_URL}/profile`);
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  return res.json();
+}
+
+export async function updateProfile(profile: UpdateProfileRequest): Promise<void> {
+  const res = await authFetch(`${API_BASE_URL}/profile`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(profile),
+  });
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+}
+
+export async function addMemory(category: string, content: string): Promise<UserMemory> {
+  const res = await authFetch(`${API_BASE_URL}/profile/memory`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ category, content }),
+  });
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  return res.json();
+}
+
+export async function deleteMemory(memoryId: string): Promise<void> {
+  const res = await authFetch(`${API_BASE_URL}/profile/memory/${memoryId}`, {
+    method: 'DELETE',
   });
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
 }

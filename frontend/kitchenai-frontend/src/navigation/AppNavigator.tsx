@@ -9,6 +9,7 @@ import { InventoryScreen } from '../screens/InventoryScreen';
 import { MealsScreen } from '../screens/MealsScreen';
 import { CookScreen } from '../screens/CookScreen';
 import { ShoppingScreen } from '../screens/ShoppingScreen';
+import { ProfileScreen } from '../screens/ProfileScreen';
 
 const Tab = createBottomTabNavigator();
 
@@ -21,6 +22,7 @@ const linking = {
       Meals: 'meals',
       Cook: 'cook',
       Shopping: 'shopping',
+      Profile: 'profile',
     },
   },
 };
@@ -31,6 +33,7 @@ const TAB_ICONS: Record<string, { focused: string; default: string }> = {
   Meals: { focused: '🍽️', default: '🍴' },
   Cook: { focused: '👨‍🍳', default: '🧑‍🍳' },
   Shopping: { focused: '🛒', default: '🛍️' },
+  Profile: { focused: '👤', default: '👤' },
 };
 
 function EmojiIcon({ name, focused }: { name: string; focused: boolean }) {
@@ -101,6 +104,11 @@ export function AppNavigator() {
           name="Shopping"
           component={ShoppingScreen}
           options={{ title: 'Shopping' }}
+        />
+        <Tab.Screen
+          name="Profile"
+          component={ProfileScreen}
+          options={{ title: 'Profile', headerStyle: { backgroundColor: '#607D8B' } }}
         />
       </Tab.Navigator>
     </NavigationContainer>

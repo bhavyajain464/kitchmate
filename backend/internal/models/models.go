@@ -54,6 +54,47 @@ type UserPreferencesRequest struct {
 	FavCuisines []string `json:"fav_cuisines"`
 }
 
+// UserMemory represents free-form memory notes that influence meal suggestions
+type UserMemory struct {
+	ID        string    `json:"id"`
+	UserID    string    `json:"user_id"`
+	Category  string    `json:"category"`
+	Content   string    `json:"content"`
+	CreatedAt time.Time `json:"created_at"`
+}
+
+// UserProfile aggregates user info, preferences, and memory for the profile page
+type UserProfile struct {
+	User            User              `json:"user"`
+	HouseholdSize   int               `json:"household_size"`
+	Allergies       []string          `json:"allergies"`
+	Dislikes        []string          `json:"dislikes"`
+	DietaryTags     []string          `json:"dietary_tags"`
+	FavCuisines     []string          `json:"fav_cuisines"`
+	SpiceLevel      string            `json:"spice_level"`
+	CookingSkill    string            `json:"cooking_skill"`
+	Memories        []UserMemory      `json:"memories"`
+	InventoryCount  int               `json:"inventory_count"`
+	ExpiringCount   int               `json:"expiring_count"`
+}
+
+// UpdateProfileRequest is the payload for updating the full profile
+type UpdateProfileRequest struct {
+	HouseholdSize int      `json:"household_size"`
+	Allergies     []string `json:"allergies"`
+	Dislikes      []string `json:"dislikes"`
+	DietaryTags   []string `json:"dietary_tags"`
+	FavCuisines   []string `json:"fav_cuisines"`
+	SpiceLevel    string   `json:"spice_level"`
+	CookingSkill  string   `json:"cooking_skill"`
+}
+
+// AddMemoryRequest is the payload for adding a memory note
+type AddMemoryRequest struct {
+	Category string `json:"category"`
+	Content  string `json:"content"`
+}
+
 // CookProfile represents cook's skills and language preferences
 type CookProfile struct {
 	CookID        string    `json:"cook_id"`

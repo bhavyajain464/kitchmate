@@ -134,6 +134,38 @@ export interface WhatsAppResult {
   message?: string;
 }
 
+export interface UserMemory {
+  id: string;
+  user_id: string;
+  category: string;
+  content: string;
+  created_at: string;
+}
+
+export interface UserProfile {
+  user: AuthUser;
+  household_size: number;
+  allergies: string[];
+  dislikes: string[];
+  dietary_tags: string[];
+  fav_cuisines: string[];
+  spice_level: string;
+  cooking_skill: string;
+  memories: UserMemory[];
+  inventory_count: number;
+  expiring_count: number;
+}
+
+export interface UpdateProfileRequest {
+  household_size: number;
+  allergies: string[];
+  dislikes: string[];
+  dietary_tags: string[];
+  fav_cuisines: string[];
+  spice_level: string;
+  cooking_skill: string;
+}
+
 export interface CookInfo {
   cook_id?: string;
   name: string;

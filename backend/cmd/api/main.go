@@ -73,6 +73,12 @@ func main() {
 	api.Handle("/user/preferences", middleware.RequireAuth(http.HandlerFunc(handlers.GetUserPreferences(sqlDB)))).Methods("GET", "OPTIONS")
 	api.Handle("/user/preferences", middleware.RequireAuth(http.HandlerFunc(handlers.UpdateUserPreferences(sqlDB)))).Methods("PUT", "OPTIONS")
 
+	// Profile & Memory
+	api.Handle("/profile", middleware.RequireAuth(http.HandlerFunc(handlers.GetProfile(sqlDB)))).Methods("GET", "OPTIONS")
+	api.Handle("/profile", middleware.RequireAuth(http.HandlerFunc(handlers.UpdateProfile(sqlDB)))).Methods("PUT", "OPTIONS")
+	api.Handle("/profile/memory", middleware.RequireAuth(http.HandlerFunc(handlers.AddMemory(sqlDB)))).Methods("POST", "OPTIONS")
+	api.Handle("/profile/memory/{id}", middleware.RequireAuth(http.HandlerFunc(handlers.DeleteMemory(sqlDB)))).Methods("DELETE", "OPTIONS")
+
 	// Cook profile
 	api.Handle("/cook/profile", middleware.RequireAuth(http.HandlerFunc(handlers.GetCookProfile(sqlDB)))).Methods("GET", "OPTIONS")
 	api.Handle("/cook/profile", middleware.RequireAuth(http.HandlerFunc(handlers.UpdateCookProfile(sqlDB)))).Methods("PUT", "OPTIONS")

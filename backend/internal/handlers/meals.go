@@ -127,13 +127,38 @@ func fetchUserCookProfile(db *sql.DB, userID string) *services.CookProfileData {
 
 func fetchUserPreferences(db *sql.DB, userID string) *services.UserPrefsData {
 	var up services.UserPrefsData
+	var householdSize sql.NullInt64
+	var spiceLevel, cookingSkill sql.NullString
 	err := db.QueryRow(`
-		SELECT dislikes, dietary_tags, fav_cuisines
+		SELECT dislikes, dietary_tags, fav_cuisines,
+			COALESCE(allergies, '{}'), COALESCE(household_size, 2),
+			COALESCE(spice_level, 'medium'), COALESCE(cooking_skill, 'intermediate')
 		FROM user_prefs
 		WHERE user_id = $1
-	`, userID).Scan(&up.Dislikes, &up.DietaryTags, &up.FavCuisines)
+	`, userID).Scan(&up.Dislikes, &up.DietaryTags, &up.FavCuisines,
+		&up.Allergies, &householdSize, &spiceLevel, &cookingSkill)
 	if err != nil {
 		return nil
+	}
+	if householdSize.Valid {
+		up.HouseholdSize = int(householdSize.Int64)
+	}
+	if spiceLevel.Valid {
+		up.SpiceLevel = spiceLevel.String
+	}
+	if cookingSkill.Valid {
+		up.CookingSkill = cookingSkill.String
+	}
+
+	rows, err := db.Query(`SELECT content FROM user_memory WHERE user_id = $1 ORDER BY created_at DESC LIMIT 20`, userID)
+	if err == nil {
+		defer rows.Close()
+		for rows.Next() {
+			var content string
+			if rows.Scan(&content) == nil {
+				up.Memories = append(up.Memories, content)
+			}
+		}
 	}
 	return &up
 }
@@ -165,14 +190,32 @@ func buildMealPrompt(inventory []inventoryRow, cook *services.CookProfileData, p
 	}
 
 	if prefs != nil {
+		if prefs.HouseholdSize > 0 {
+			sb.WriteString(fmt.Sprintf("\n## Household Size: %d people\n", prefs.HouseholdSize))
+		}
+		if len(prefs.Allergies) > 0 {
+			sb.WriteString(fmt.Sprintf("## ALLERGIES (MUST AVOID): %s\n", strings.Join(prefs.Allergies, ", ")))
+		}
 		if len(prefs.Dislikes) > 0 {
-			sb.WriteString(fmt.Sprintf("\n## User Dislikes: %s\n", strings.Join(prefs.Dislikes, ", ")))
+			sb.WriteString(fmt.Sprintf("## User Dislikes: %s\n", strings.Join(prefs.Dislikes, ", ")))
 		}
 		if len(prefs.DietaryTags) > 0 {
 			sb.WriteString(fmt.Sprintf("## Dietary: %s\n", strings.Join(prefs.DietaryTags, ", ")))
 		}
 		if len(prefs.FavCuisines) > 0 {
 			sb.WriteString(fmt.Sprintf("## Favorite Cuisines: %s\n", strings.Join(prefs.FavCuisines, ", ")))
+		}
+		if prefs.SpiceLevel != "" {
+			sb.WriteString(fmt.Sprintf("## Spice Preference: %s\n", prefs.SpiceLevel))
+		}
+		if prefs.CookingSkill != "" {
+			sb.WriteString(fmt.Sprintf("## Cooking Skill Level: %s\n", prefs.CookingSkill))
+		}
+		if len(prefs.Memories) > 0 {
+			sb.WriteString("\n## User's Notes & Preferences (Memory):\n")
+			for _, m := range prefs.Memories {
+				sb.WriteString(fmt.Sprintf("- %s\n", m))
+			}
 		}
 	}
 
