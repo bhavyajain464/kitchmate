@@ -14,7 +14,7 @@ import {
 } from '../types';
 
 const API_BASE_URL =
-  process.env.EXPO_PUBLIC_API_BASE_URL || 'http://192.168.0.116:8080/api/v1';
+  process.env.EXPO_PUBLIC_API_BASE_URL || 'http://localhost:8080/api/v1';
 
 let _authToken: string | null = null;
 

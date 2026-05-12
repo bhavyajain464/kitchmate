@@ -4,14 +4,9 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { AuthUser } from '../types';
 import { googleLogin, logoutApi, setAuthToken } from '../services/api';
 
-const GOOGLE_WEB_CLIENT_ID =
-  process.env.EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID ||
-  '208103249970-qg4bv6ilknfe52eqks8u662hp3toneua.apps.googleusercontent.com';
-const GOOGLE_IOS_CLIENT_ID =
-  process.env.EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID ||
-  '208103249970-5j9v2282v0f9r0d8859shqmnurpc93lp.apps.googleusercontent.com';
-const GOOGLE_ANDROID_CLIENT_ID =
-  process.env.EXPO_PUBLIC_GOOGLE_ANDROID_CLIENT_ID || '';
+const GOOGLE_WEB_CLIENT_ID = process.env.EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID || '';
+const GOOGLE_IOS_CLIENT_ID = process.env.EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID || '';
+const GOOGLE_ANDROID_CLIENT_ID = process.env.EXPO_PUBLIC_GOOGLE_ANDROID_CLIENT_ID || '';
 
 interface AuthContextType {
   user: AuthUser | null;
