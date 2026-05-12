@@ -74,8 +74,8 @@ var indianMeals = []struct {
 
 // GetRescueMealSuggestions generates meal suggestions based on expiring items and cook skills
 func (s *MealSuggestionService) GetRescueMealSuggestions(req RescueMealRequest) (*RescueMealResponse, error) {
-	// Get expiring items (within 3 days)
-	expiringItems, err := s.getExpiringItems(3)
+	// Get expiring items (within 7 days, including recently expired)
+	expiringItems, err := s.getExpiringItems(7)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get expiring items: %v", err)
 	}
@@ -122,7 +122,7 @@ func (s *MealSuggestionService) getExpiringItems(days int) ([]models.ExpiringIte
 			EXTRACT(DAY FROM estimated_expiry - CURRENT_DATE)::integer as days_until_expiry
 		FROM inventory 
 		WHERE estimated_expiry IS NOT NULL 
-			AND estimated_expiry >= CURRENT_DATE
+			AND estimated_expiry >= CURRENT_DATE - INTERVAL '2 days'
 			AND estimated_expiry <= CURRENT_DATE + $1 * INTERVAL '1 day'
 		ORDER BY estimated_expiry ASC
 	`

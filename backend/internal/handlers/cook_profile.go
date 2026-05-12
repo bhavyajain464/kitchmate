@@ -8,18 +8,17 @@ import (
 	"kitchenai-backend/internal/models"
 )
 
-// GetCookProfile returns cook profile
+// GetCookProfile returns the cook profile for the authenticated user
 func GetCookProfile(db *sql.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		// For simplicity, we'll assume a single cook for now
-		cookID := "default-cook"
+		userID := getUserID(r)
 
 		var profile models.CookProfile
 		err := db.QueryRow(`
 			SELECT cook_id, dishes_known, preferred_lang, phone_number, created_at, updated_at
 			FROM cook_profile
-			WHERE cook_id = $1
-		`, cookID).Scan(
+			WHERE user_id = $1
+		`, userID).Scan(
 			&profile.CookID,
 			&profile.DishesKnown,
 			&profile.PreferredLang,
@@ -29,11 +28,28 @@ func GetCookProfile(db *sql.DB) http.HandlerFunc {
 		)
 
 		if err == sql.ErrNoRows {
-			// Return default profile if not found
-			profile = models.CookProfile{
-				CookID:        cookID,
-				DishesKnown:   []string{},
-				PreferredLang: "en",
+			// Fall back to legacy profile without user_id
+			err = db.QueryRow(`
+				SELECT cook_id, dishes_known, preferred_lang, phone_number, created_at, updated_at
+				FROM cook_profile
+				WHERE user_id IS NULL
+				LIMIT 1
+			`).Scan(
+				&profile.CookID,
+				&profile.DishesKnown,
+				&profile.PreferredLang,
+				&profile.PhoneNumber,
+				&profile.CreatedAt,
+				&profile.UpdatedAt,
+			)
+			if err == sql.ErrNoRows {
+				profile = models.CookProfile{
+					DishesKnown:   []string{},
+					PreferredLang: "en",
+				}
+			} else if err != nil {
+				http.Error(w, err.Error(), http.StatusInternalServerError)
+				return
 			}
 		} else if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -45,10 +61,10 @@ func GetCookProfile(db *sql.DB) http.HandlerFunc {
 	}
 }
 
-// UpdateCookProfile updates cook profile
+// UpdateCookProfile updates the cook profile for the authenticated user
 func UpdateCookProfile(db *sql.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		cookID := "default-cook"
+		userID := getUserID(r)
 
 		var req models.CookProfileRequest
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -56,36 +72,32 @@ func UpdateCookProfile(db *sql.DB) http.HandlerFunc {
 			return
 		}
 
-		// Validate preferred language
 		if req.PreferredLang == "" {
 			req.PreferredLang = "en"
 		}
 
-		// Check if cook profile exists
 		var exists bool
-		err := db.QueryRow("SELECT EXISTS(SELECT 1 FROM cook_profile WHERE cook_id = $1)", cookID).Scan(&exists)
+		err := db.QueryRow("SELECT EXISTS(SELECT 1 FROM cook_profile WHERE user_id = $1)", userID).Scan(&exists)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
 
 		if exists {
-			// Update existing profile
 			_, err := db.Exec(`
 				UPDATE cook_profile
 				SET dishes_known = $1, preferred_lang = $2, phone_number = $3
-				WHERE cook_id = $4
-			`, req.DishesKnown, req.PreferredLang, req.PhoneNumber, cookID)
+				WHERE user_id = $4
+			`, req.DishesKnown, req.PreferredLang, req.PhoneNumber, userID)
 			if err != nil {
 				http.Error(w, err.Error(), http.StatusInternalServerError)
 				return
 			}
 		} else {
-			// Insert new profile
 			_, err := db.Exec(`
-				INSERT INTO cook_profile (cook_id, dishes_known, preferred_lang, phone_number)
+				INSERT INTO cook_profile (dishes_known, preferred_lang, phone_number, user_id)
 				VALUES ($1, $2, $3, $4)
-			`, cookID, req.DishesKnown, req.PreferredLang, req.PhoneNumber)
+			`, req.DishesKnown, req.PreferredLang, req.PhoneNumber, userID)
 			if err != nil {
 				http.Error(w, err.Error(), http.StatusInternalServerError)
 				return

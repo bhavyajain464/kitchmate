@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"strings"
+	"time"
 
 	"kitchenai-backend/internal/services"
 	"kitchenai-backend/pkg/config"
@@ -27,40 +28,36 @@ type ScanBillResponse struct {
 	Errors  []string                 `json:"errors,omitempty"`
 }
 
-// ScanBill handles bill scanning using Gemini AI
+// ScanBill handles bill scanning — extracts items only, does NOT auto-add to inventory.
+// The frontend shows results for user confirmation, then calls POST /inventory for each confirmed item.
 func ScanBill(db *sql.DB, cfg *config.Config) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		// Only accept POST requests
 		if r.Method != http.MethodPost {
 			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 			return
 		}
 
-		// Parse request body
 		var req ScanBillRequest
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			http.Error(w, "Invalid request body", http.StatusBadRequest)
 			return
 		}
 
-		// Validate required fields
 		if req.ImageData == "" {
 			http.Error(w, "image_data is required", http.StatusBadRequest)
 			return
 		}
 
 		if req.ImageType == "" {
-			// Try to infer from common formats
-			if strings.HasPrefix(req.ImageData, "/9j/") || strings.HasPrefix(req.ImageData, "/9j/") {
+			if strings.HasPrefix(req.ImageData, "/9j/") {
 				req.ImageType = "image/jpeg"
 			} else if strings.HasPrefix(req.ImageData, "iVBORw0KGgo") {
 				req.ImageType = "image/png"
 			} else {
-				req.ImageType = "image/jpeg" // Default
+				req.ImageType = "image/jpeg"
 			}
 		}
 
-		// Initialize Gemini service
 		geminiService, err := services.NewGeminiService(cfg.GeminiAPIKey, cfg.GeminiModel)
 		if err != nil {
 			response := ScanBillResponse{
@@ -72,7 +69,6 @@ func ScanBill(db *sql.DB, cfg *config.Config) http.HandlerFunc {
 		}
 		defer geminiService.Close()
 
-		// Scan the bill
 		items, err := geminiService.ScanBillFromBase64(req.ImageData, req.ImageType)
 		if err != nil {
 			response := ScanBillResponse{
@@ -83,19 +79,10 @@ func ScanBill(db *sql.DB, cfg *config.Config) http.HandlerFunc {
 			return
 		}
 
-		// Add items to inventory
-		addedItems, errors := addItemsToInventory(db, items)
-
-		// Prepare response
 		response := ScanBillResponse{
 			Success: true,
-			Message: fmt.Sprintf("Successfully scanned bill and found %d items", len(items)),
+			Message: fmt.Sprintf("Found %d edible items on this bill", len(items)),
 			Items:   items,
-			Added:   addedItems,
-		}
-
-		if len(errors) > 0 {
-			response.Errors = errors
 		}
 
 		writeJSONResponse(w, http.StatusOK, response)
@@ -105,13 +92,13 @@ func ScanBill(db *sql.DB, cfg *config.Config) http.HandlerFunc {
 // ScanBillMultipart handles bill scanning with multipart form data (file upload)
 func ScanBillMultipart(db *sql.DB, cfg *config.Config) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		// Only accept POST requests
 		if r.Method != http.MethodPost {
 			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 			return
 		}
 
-		// Parse multipart form (max 10MB)
+		userID := getUserID(r)
+
 		if err := r.ParseMultipartForm(10 << 20); err != nil {
 			http.Error(w, "Failed to parse form", http.StatusBadRequest)
 			return
@@ -169,10 +156,8 @@ func ScanBillMultipart(db *sql.DB, cfg *config.Config) http.HandlerFunc {
 			return
 		}
 
-		// Add items to inventory
-		addedItems, errors := addItemsToInventory(db, items)
+		addedItems, errors := addItemsToInventory(db, items, userID)
 
-		// Prepare response
 		response := ScanBillResponse{
 			Success: true,
 			Message: fmt.Sprintf("Successfully scanned bill and found %d items", len(items)),
@@ -188,27 +173,30 @@ func ScanBillMultipart(db *sql.DB, cfg *config.Config) http.HandlerFunc {
 	}
 }
 
-// addItemsToInventory adds scanned bill items to the inventory database
-func addItemsToInventory(db *sql.DB, items []services.BillItem) ([]map[string]interface{}, []string) {
+func addItemsToInventory(db *sql.DB, items []services.BillItem, userID string) ([]map[string]interface{}, []string) {
 	var addedItems []map[string]interface{}
 	var errors []string
 
 	for _, item := range items {
-		// Check if item already exists in inventory
-		var existingID int
+		shelfDays := item.ShelfLifeDays
+		if shelfDays <= 0 {
+			shelfDays = 7
+		}
+		expiry := time.Now().AddDate(0, 0, shelfDays)
+
+		var existingID string
 		err := db.QueryRow(`
 			SELECT item_id FROM inventory 
-			WHERE canonical_name = $1 AND unit = $2
+			WHERE LOWER(canonical_name) = LOWER($1) AND unit = $2 AND (user_id = $3 OR user_id IS NULL)
 			LIMIT 1
-		`, item.Name, item.Unit).Scan(&existingID)
+		`, item.Name, item.Unit, userID).Scan(&existingID)
 
 		if err == nil {
-			// Item exists, update quantity
 			_, err = db.Exec(`
 				UPDATE inventory 
-				SET qty = qty + $1, updated_at = NOW()
-				WHERE item_id = $2
-			`, item.Quantity, existingID)
+				SET qty = qty + $1, estimated_expiry = LEAST(estimated_expiry, $2), user_id = COALESCE(user_id, $3), updated_at = NOW()
+				WHERE item_id = $4
+			`, item.Quantity, expiry, userID, existingID)
 
 			if err != nil {
 				errors = append(errors, fmt.Sprintf("Failed to update %s: %v", item.Name, err))
@@ -216,21 +204,21 @@ func addItemsToInventory(db *sql.DB, items []services.BillItem) ([]map[string]in
 			}
 
 			addedItems = append(addedItems, map[string]interface{}{
-				"item_id":   existingID,
-				"name":      item.Name,
-				"quantity":  item.Quantity,
-				"unit":      item.Unit,
-				"action":    "updated",
-				"new_total": nil, // We'd need to query to get the new total
+				"item_id":         existingID,
+				"name":            item.Name,
+				"quantity":        item.Quantity,
+				"unit":            item.Unit,
+				"action":          "updated",
+				"shelf_life_days": shelfDays,
+				"estimated_expiry": expiry.Format("2006-01-02"),
 			})
 		} else if err == sql.ErrNoRows {
-			// Item doesn't exist, insert new
-			var itemID int
+			var itemID string
 			err = db.QueryRow(`
-				INSERT INTO inventory (canonical_name, qty, unit, is_manual, created_at, updated_at)
-				VALUES ($1, $2, $3, false, NOW(), NOW())
+				INSERT INTO inventory (canonical_name, qty, unit, estimated_expiry, user_id, is_manual, created_at, updated_at)
+				VALUES ($1, $2, $3, $4, $5, false, NOW(), NOW())
 				RETURNING item_id
-			`, item.Name, item.Quantity, item.Unit).Scan(&itemID)
+			`, item.Name, item.Quantity, item.Unit, expiry, userID).Scan(&itemID)
 
 			if err != nil {
 				errors = append(errors, fmt.Sprintf("Failed to insert %s: %v", item.Name, err))
@@ -238,14 +226,15 @@ func addItemsToInventory(db *sql.DB, items []services.BillItem) ([]map[string]in
 			}
 
 			addedItems = append(addedItems, map[string]interface{}{
-				"item_id":  itemID,
-				"name":     item.Name,
-				"quantity": item.Quantity,
-				"unit":     item.Unit,
-				"action":   "added",
+				"item_id":         itemID,
+				"name":            item.Name,
+				"quantity":        item.Quantity,
+				"unit":            item.Unit,
+				"action":          "added",
+				"shelf_life_days": shelfDays,
+				"estimated_expiry": expiry.Format("2006-01-02"),
 			})
 		} else {
-			// Other database error
 			errors = append(errors, fmt.Sprintf("Database error for %s: %v", item.Name, err))
 		}
 	}
@@ -263,17 +252,17 @@ func writeJSONResponse(w http.ResponseWriter, statusCode int, data interface{}) 
 // TestScanBill is a test endpoint that returns mock data without calling Gemini
 func TestScanBill(db *sql.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		// Return mock bill items for testing
+		userID := getUserID(r)
+
 		mockItems := []services.BillItem{
-			{Name: "Basmati Rice", Quantity: 5, Unit: "kg", PricePerUnit: 120, TotalPrice: 600},
-			{Name: "Tomatoes", Quantity: 2, Unit: "kg", PricePerUnit: 40, TotalPrice: 80},
-			{Name: "Onions", Quantity: 3, Unit: "kg", PricePerUnit: 30, TotalPrice: 90},
-			{Name: "Potatoes", Quantity: 4, Unit: "kg", PricePerUnit: 25, TotalPrice: 100},
-			{Name: "Milk", Quantity: 2, Unit: "litre", PricePerUnit: 60, TotalPrice: 120},
+			{Name: "Basmati Rice", Quantity: 5, Unit: "kg", PricePerUnit: 120, TotalPrice: 600, ShelfLifeDays: 60},
+			{Name: "Tomatoes", Quantity: 2, Unit: "kg", PricePerUnit: 40, TotalPrice: 80, ShelfLifeDays: 7},
+			{Name: "Onions", Quantity: 3, Unit: "kg", PricePerUnit: 30, TotalPrice: 90, ShelfLifeDays: 14},
+			{Name: "Potatoes", Quantity: 4, Unit: "kg", PricePerUnit: 25, TotalPrice: 100, ShelfLifeDays: 14},
+			{Name: "Milk", Quantity: 2, Unit: "litre", PricePerUnit: 60, TotalPrice: 120, ShelfLifeDays: 3},
 		}
 
-		// Add mock items to inventory
-		addedItems, errors := addItemsToInventory(db, mockItems)
+		addedItems, errors := addItemsToInventory(db, mockItems, userID)
 
 		response := ScanBillResponse{
 			Success: true,

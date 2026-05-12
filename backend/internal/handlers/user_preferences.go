@@ -11,9 +11,11 @@ import (
 // GetUserPreferences returns user preferences
 func GetUserPreferences(db *sql.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		// For simplicity, we'll assume a single user for now
-		// In a real app, you'd get the user ID from auth context
-		userID := "default-user"
+		userID := getUserID(r)
+		if userID == "" {
+			http.Error(w, "Authentication required", http.StatusUnauthorized)
+			return
+		}
 
 		var prefs models.UserPreferences
 		err := db.QueryRow(`
@@ -50,7 +52,11 @@ func GetUserPreferences(db *sql.DB) http.HandlerFunc {
 // UpdateUserPreferences updates user preferences
 func UpdateUserPreferences(db *sql.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		userID := "default-user"
+		userID := getUserID(r)
+		if userID == "" {
+			http.Error(w, "Authentication required", http.StatusUnauthorized)
+			return
+		}
 
 		var req models.UserPreferencesRequest
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {

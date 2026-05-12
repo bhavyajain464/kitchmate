@@ -1,32 +1,45 @@
 {
   "expo": {
-    "name": "kitchenai-frontend",
+    "name": "Kitchen AI",
     "slug": "kitchenai-frontend",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
     "newArchEnabled": true,
+    "scheme": "kitchenai",
     "splash": {
       "image": "./assets/splash-icon.png",
       "resizeMode": "contain",
-      "backgroundColor": "#ffffff"
+      "backgroundColor": "#4CAF50"
     },
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.kitchenai.app"
+      "bundleIdentifier": "com.kitchenai.app",
+      "infoPlist": {
+        "NSCameraUsageDescription": "Kitchen AI needs camera access to scan grocery bills.",
+        "NSPhotoLibraryUsageDescription": "Kitchen AI needs photo library access to select grocery bill images."
+      }
     },
     "android": {
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
-        "backgroundColor": "#ffffff"
+        "backgroundColor": "#4CAF50"
       },
       "edgeToEdgeEnabled": true,
       "predictiveBackGestureEnabled": false,
-      "package": "com.kitchenai.app"
+      "package": "com.kitchenai.app",
+      "permissions": [
+        "CAMERA",
+        "READ_EXTERNAL_STORAGE"
+      ]
     },
     "web": {
-      "favicon": "./assets/favicon.png"
-    }
+      "favicon": "./assets/favicon.png",
+      "bundler": "metro"
+    },
+    "plugins": [
+      "expo-image-picker"
+    ]
   }
 }

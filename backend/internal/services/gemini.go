@@ -7,7 +7,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"mime"
 	"strings"
 
 	"github.com/google/generative-ai-go/genai"
@@ -54,41 +53,46 @@ func (s *GeminiService) ScanBill(imageData []byte, imageType string) ([]BillItem
 	model.SetTemperature(0.1)
 	model.SetTopP(0.95)
 
-	// Prepare the prompt for grocery bill scanning (Indian context)
-	prompt := `You are an expert at reading Indian grocery bills. Extract all grocery items from this bill with the following details:
-1. Item name (standardized to common Indian grocery names)
-2. Quantity (extract the numeric quantity and unit)
-3. Price per unit (if available)
-4. Total price for that item (if available)
+	prompt := `You are an expert at reading Indian grocery bills. Extract ONLY edible and kitchen-consumable items from this bill.
 
-Return the data as a JSON array of objects with these fields: name, quantity, unit, price_per_unit, total_price.
+INCLUDE: food, beverages, cooking ingredients, spices, grains, dairy, produce, snacks, packaged food.
+EXCLUDE: non-food items like toilet paper, baby wipes, detergent, soap, shampoo, cleaning supplies, plastic bags, batteries, tissues, toothpaste, diapers, pet food, stationery, or any non-edible household product.
 
-Focus on Indian grocery items like: rice, wheat flour, lentils (dal), vegetables, fruits, spices, oil, milk, etc.
-If the bill contains multiple items, extract all of them.
+For each edible item provide:
+- name: standardized common Indian grocery name
+- quantity: numeric quantity
+- unit: kg, liters, pieces, grams, packets, etc.
+- price_per_unit: price per unit if visible (0 if not)
+- total_price: total price if visible (0 if not)
+- shelf_life_days: estimated shelf life in days stored at home in Indian conditions:
+  * Fresh vegetables: 5-10 days
+  * Leafy greens: 2-3 days
+  * Milk/dairy: 2-5 days
+  * Paneer/tofu: 3-5 days
+  * Rice/dal/flour: 30-90 days
+  * Spices: 180 days
+  * Eggs: 14 days
+  * Bread: 3-5 days
+  * Fruits: 3-7 days
+  * Oil/ghee: 90 days
+  * Packaged/canned food: 60-180 days
 
-Example format:
+Return ONLY a JSON array, no markdown, no explanation:
 [
-  {"name": "Basmati Rice", "quantity": 5, "unit": "kg", "price_per_unit": 120, "total_price": 600},
-  {"name": "Tomatoes", "quantity": 2, "unit": "kg", "price_per_unit": 40, "total_price": 80}
-]
-
-Only return the JSON array, no other text.`
+  {"name": "Basmati Rice", "quantity": 5, "unit": "kg", "price_per_unit": 120, "total_price": 600, "shelf_life_days": 60},
+  {"name": "Tomatoes", "quantity": 2, "unit": "kg", "price_per_unit": 40, "total_price": 80, "shelf_life_days": 7}
+]`
 
 	// Convert image to base64 if needed and create parts
 	parts := []genai.Part{
 		genai.Text(prompt),
 	}
 
-	// Add image part based on type
+	format := "jpeg"
 	if strings.HasPrefix(imageType, "image/") {
-		// Create inline data for the image
-		imgPart := genai.ImageData(mime.TypeByExtension("."+strings.TrimPrefix(imageType, "image/")), imageData)
-		parts = append(parts, imgPart)
-	} else {
-		// Try to detect from common formats
-		imgPart := genai.ImageData("jpeg", imageData)
-		parts = append(parts, imgPart)
+		format = strings.TrimPrefix(imageType, "image/")
 	}
+	parts = append(parts, genai.ImageData(format, imageData))
 
 	// Generate content
 	resp, err := model.GenerateContent(ctx, parts...)
@@ -146,11 +150,12 @@ func (s *GeminiService) ScanBillFromReader(reader io.Reader, imageType string) (
 
 // BillItem represents a single item extracted from a grocery bill
 type BillItem struct {
-	Name         string  `json:"name"`
-	Quantity     float64 `json:"quantity"`
-	Unit         string  `json:"unit"`
-	PricePerUnit float64 `json:"price_per_unit,omitempty"`
-	TotalPrice   float64 `json:"total_price,omitempty"`
+	Name          string  `json:"name"`
+	Quantity      float64 `json:"quantity"`
+	Unit          string  `json:"unit"`
+	PricePerUnit  float64 `json:"price_per_unit,omitempty"`
+	TotalPrice    float64 `json:"total_price,omitempty"`
+	ShelfLifeDays int     `json:"shelf_life_days,omitempty"`
 }
 
 // ParseBillItems parses the JSON response from Gemini into BillItem slice
