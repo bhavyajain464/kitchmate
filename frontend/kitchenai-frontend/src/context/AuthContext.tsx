@@ -126,6 +126,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       if (result.token && result.user) {
         await AsyncStorage.setItem('authToken', result.token);
         await AsyncStorage.setItem('authUser', JSON.stringify(result.user));
+        // Push the token into the api module synchronously so child screens
+        // that mount on the next render already have it for their first API
+        // call (the token useEffect below runs *after* child effects).
+        setAuthToken(result.token);
         setToken(result.token);
         setUser(result.user);
       } else {

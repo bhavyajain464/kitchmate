@@ -39,14 +39,19 @@ export function setOnUnauthorized(handler: (() => void) | null) {
 }
 
 async function authFetch(url: string, options: RequestInit = {}): Promise<Response> {
+  // Snapshot the token at the moment the request is dispatched. If the call
+  // returns 401 we only treat it as a session-expired event when the request
+  // actually carried a token; an unauthenticated call (token not yet set, or
+  // a public endpoint) returning 401 is not a sign of an expired session.
+  const tokenAtRequest = _authToken;
   const headers: Record<string, string> = {
     ...(options.headers as Record<string, string>),
   };
-  if (_authToken) {
-    headers['Authorization'] = `Bearer ${_authToken}`;
+  if (tokenAtRequest) {
+    headers['Authorization'] = `Bearer ${tokenAtRequest}`;
   }
   const res = await fetch(url, { ...options, headers });
-  if (res.status === 401 && _authToken) {
+  if (res.status === 401 && tokenAtRequest) {
     _authToken = null;
     if (_onUnauthorized && !_unauthorizedFired) {
       _unauthorizedFired = true;
