@@ -1,0 +1,68 @@
+name: Deploy backend to Cloud Run
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'backend/**'
+      - '.github/workflows/deploy-backend.yml'
+  workflow_dispatch: {}
+
+concurrency:
+  group: deploy-backend
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  id-token: write
+
+env:
+  PROJECT_ID: kitchmate-495620
+  REGION: asia-south1
+  SERVICE: kitchenai-backend
+  IMAGE: gcr.io/kitchmate-495620/kitchenai-backend
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Authenticate to Google Cloud (WIF)
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: projects/208103249970/locations/global/workloadIdentityPools/github/providers/github-provider
+          service_account: github-deployer@kitchmate-495620.iam.gserviceaccount.com
+
+      - name: Set up gcloud
+        uses: google-github-actions/setup-gcloud@v2
+        with:
+          project_id: ${{ env.PROJECT_ID }}
+
+      - name: Build and push container image
+        run: |
+          gcloud builds submit \
+            --tag "${IMAGE}" \
+            --project "${PROJECT_ID}" \
+            ./backend
+
+      - name: Deploy to Cloud Run
+        run: |
+          gcloud run deploy "${SERVICE}" \
+            --image "${IMAGE}" \
+            --project "${PROJECT_ID}" \
+            --region "${REGION}" \
+            --platform managed \
+            --port 8080 \
+            --memory 256Mi \
+            --cpu 1 \
+            --allow-unauthenticated \
+            --quiet
+
+      - name: Show service URL
+        run: |
+          gcloud run services describe "${SERVICE}" \
+            --project "${PROJECT_ID}" \
+            --region "${REGION}" \
+            --format='value(status.url)'
