@@ -141,7 +141,7 @@ func main() {
 	router.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
-		w.Write([]byte(`{"status": "healthy", "service": "kitchenai-backend"}`))
+		w.Write([]byte(`{"status": "healthy", "service": "kitchenai-backend", "version": "ci-1"}`))
 	}).Methods("GET")
 
 	srv := &http.Server{
