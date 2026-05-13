@@ -2,7 +2,7 @@ import React, { createContext, useContext, useState, useEffect, useCallback, use
 import { Platform, Alert } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { AuthUser } from '../types';
-import { googleLogin, logoutApi, setAuthToken } from '../services/api';
+import { googleLogin, logoutApi, setAuthToken, setOnUnauthorized } from '../services/api';
 
 const GOOGLE_WEB_CLIENT_ID = process.env.EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID!;
 const GOOGLE_IOS_CLIENT_ID = process.env.EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID!;
@@ -187,9 +187,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   }, [nativeAuth]);
 
-  const signOut = useCallback(async () => {
+  const clearSession = useCallback(async (opts?: { skipServerLogout?: boolean }) => {
     try {
-      if (token) {
+      if (token && !opts?.skipServerLogout) {
         await logoutApi(token).catch(() => {});
       }
       await AsyncStorage.multiRemove(['authToken', 'authUser']);
@@ -202,9 +202,32 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         google?.accounts?.id?.disableAutoSelect();
       }
     } catch (e) {
-      console.error('Logout error:', e);
+      console.error('Clear session error:', e);
     }
   }, [token]);
+
+  const signOut = useCallback(async () => {
+    await clearSession();
+  }, [clearSession]);
+
+  useEffect(() => {
+    setOnUnauthorized(() => {
+      // Server invalidated our token (expired, revoked, restart). Drop the
+      // local session immediately so screens stop showing "0" everywhere and
+      // the navigator routes back to Login on the next render.
+      clearSession({ skipServerLogout: true });
+      if (Platform.OS === 'web') {
+        try {
+          if (typeof window !== 'undefined') {
+            window.alert('Your session has expired. Please sign in again.');
+          }
+        } catch {}
+      } else {
+        Alert.alert('Session expired', 'Please sign in again to continue.');
+      }
+    });
+    return () => setOnUnauthorized(null);
+  }, [clearSession]);
 
   const ready = Platform.OS === 'web' ? webAuth.ready : nativeAuth.ready;
 

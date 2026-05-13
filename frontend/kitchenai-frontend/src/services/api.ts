@@ -19,9 +19,23 @@ import {
 const API_BASE_URL = process.env.EXPO_PUBLIC_API_BASE_URL!;
 
 let _authToken: string | null = null;
+let _onUnauthorized: (() => void) | null = null;
+let _unauthorizedFired = false;
 
 export function setAuthToken(token: string | null) {
   _authToken = token;
+  if (token) {
+    _unauthorizedFired = false;
+  }
+}
+
+/**
+ * Register a callback that runs when the API returns 401. The first 401 after
+ * a fresh sign-in fires the callback exactly once so AuthContext can clear the
+ * session and route the user to Login instead of rendering empty data.
+ */
+export function setOnUnauthorized(handler: (() => void) | null) {
+  _onUnauthorized = handler;
 }
 
 async function authFetch(url: string, options: RequestInit = {}): Promise<Response> {
@@ -31,7 +45,19 @@ async function authFetch(url: string, options: RequestInit = {}): Promise<Respon
   if (_authToken) {
     headers['Authorization'] = `Bearer ${_authToken}`;
   }
-  return fetch(url, { ...options, headers });
+  const res = await fetch(url, { ...options, headers });
+  if (res.status === 401 && _authToken) {
+    _authToken = null;
+    if (_onUnauthorized && !_unauthorizedFired) {
+      _unauthorizedFired = true;
+      try {
+        _onUnauthorized();
+      } catch (e) {
+        console.warn('onUnauthorized handler failed:', e);
+      }
+    }
+  }
+  return res;
 }
 
 // ─── Inventory ───────────────────────────────────────────────
