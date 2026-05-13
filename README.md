@@ -646,7 +646,7 @@ The React Native frontend uses `expo-auth-session` (see `src/` screens and `Auth
 ## ✅ Testing Results (Week 6)
 
 ### Database Connectivity
-- ✅ PostgreSQL database accessible at `140.245.26.151:5432`
+- ✅ PostgreSQL database configured via `DATABASE_URL`
 - ✅ All 7 tables created successfully (users, inventory, user_prefs, cook_profile, meal_suggestions, shopping_list, auth_sessions)
 - ✅ Database schema matches application requirements
 

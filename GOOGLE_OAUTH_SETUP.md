@@ -10,10 +10,9 @@ This guide explains how to configure Google OAuth for multi-platform support (We
 
 ## Current Configuration
 
-- **Machine IP**: 192.168.0.116
 - **Backend Port**: 8080
 - **Expo Dev Server Port**: 8082
-- **iOS Client ID**: `208103249970-5j9v2282v0f9r0d8859shqmnurpc93lp.apps.googleusercontent.com` (already configured as iOS client)
+- Keep real Google OAuth client IDs in local `.env` files or your deployment secrets, not in committed docs.
 
 ## Step 1: Create Three OAuth 2.0 Client IDs
 
@@ -25,12 +24,12 @@ Go to [Google Cloud Console](https://console.cloud.google.com/) → APIs & Servi
 - **Authorized JavaScript origins**:
   - `http://localhost:8082` (Expo web, common local default)
   - `http://localhost:19006`
-  - `http://192.168.0.116:19006`
+  - `http://<your-lan-ip>:19006`
   - `http://localhost:3000`
 - **Authorized redirect URIs**:
   - `http://localhost:8082`
   - `http://localhost:19006`
-  - `http://192.168.0.116:19006`
+  - `http://<your-lan-ip>:19006`
   - `http://localhost:3000`
 - **Client ID**: Copy this value for `EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID`
 
@@ -38,8 +37,8 @@ Go to [Google Cloud Console](https://console.cloud.google.com/) → APIs & Servi
 - **Type**: iOS application
 - **Name**: `kitchenai-ios-client`
 - **Bundle ID**: Get from `app.json` (currently not specified, needs to be set)
-- **Client ID**: Already exists as `208103249970-5j9v2282v0f9r0d8859shqmnurpc93lp.apps.googleusercontent.com`
-- **URL scheme**: `exp://192.168.0.116:8082`
+- **Client ID**: Copy this value for `EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID`
+- **URL scheme**: `exp://<your-lan-ip>:8082` for Expo Go development, or your production scheme for builds
 
 ### 3. Android Application Client
 - **Type**: Android application
@@ -58,13 +57,13 @@ Update `frontend/kitchenai-frontend/.env` with the actual client IDs:
 ```env
 # Google OAuth Client IDs for multi-platform support
 EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID=YOUR_WEB_CLIENT_ID_HERE
-EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID=208103249970-5j9v2282v0f9r0d8859shqmnurpc93lp.apps.googleusercontent.com
+EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID=YOUR_IOS_CLIENT_ID_HERE
 EXPO_PUBLIC_GOOGLE_ANDROID_CLIENT_ID=YOUR_ANDROID_CLIENT_ID_HERE
 
 # Redirect URIs
 EXPO_PUBLIC_WEB_REDIRECT_URI=http://localhost:19006
-EXPO_PUBLIC_IOS_REDIRECT_URI=exp://192.168.0.116:8082
-EXPO_PUBLIC_ANDROID_REDIRECT_URI=exp://192.168.0.116:8082
+EXPO_PUBLIC_IOS_REDIRECT_URI=exp://<your-lan-ip>:8082
+EXPO_PUBLIC_ANDROID_REDIRECT_URI=exp://<your-lan-ip>:8082
 ```
 
 ## Step 3: Update App Configuration
@@ -110,15 +109,14 @@ Update `frontend/kitchenai-frontend/app.json` with proper bundle ID and package 
 
 The backend CORS configuration in `backend/cmd/api/main.go` already includes:
 - `http://localhost:19006`
-- `http://192.168.0.116:19006`
-- `http://192.168.0.116:8082`
-- `exp://192.168.0.116:8082`
+- your local Expo web / LAN origins during development
 
 ## Step 5: Test the Configuration
 
 1. Restart the backend server:
    ```bash
-   cd backend && DATABASE_URL="postgresql://kitch_admin:kitch@140.245.26.151:5432/kitch-mate?sslmode=disable" GOOGLE_CLIENT_ID="208103249970-5j9v2282v0f9r0d8859shqmnurpc93lp.apps.googleusercontent.com" go run cmd/api/main.go
+   cd backend
+   go run ./cmd/api
    ```
 
 2. Start the Expo dev server:
@@ -136,8 +134,8 @@ The backend CORS configuration in `backend/cmd/api/main.go` already includes:
 
 1. **"redirect_uri mismatch" error**:
    - Ensure the redirect URI in Google Cloud Console matches exactly what Expo is using
-   - For iOS: `exp://192.168.0.116:8082`
-   - For Web: `http://localhost:19006` or `http://192.168.0.116:19006`
+   - For iOS development: `exp://<your-lan-ip>:8082`
+   - For Web: `http://localhost:19006` or your Expo web origin
 
 2. **CORS errors**:
    - Check that the backend CORS configuration includes all necessary origins
@@ -151,6 +149,6 @@ The backend CORS configuration in `backend/cmd/api/main.go` already includes:
 
 ## Notes
 
-- The current iOS client ID (`208103249970-5j9v2282v0f9r0d8859shqmnurpc93lp.apps.googleusercontent.com`) is configured as an iOS client but is being used as a web client in the code. This causes the redirect_uri mismatch error.
+- Use the platform-specific client ID for each platform; do not reuse an iOS client ID as the web client ID.
 - For production, you should use proper bundle IDs and package names.
 - Consider using Expo Application Services (EAS) for building and distributing the app.
