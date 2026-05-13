@@ -40,18 +40,25 @@ jobs:
         with:
           project_id: ${{ env.PROJECT_ID }}
 
-      - name: Build and push container image
+      - name: Configure Docker auth for GCR
+        run: gcloud auth configure-docker gcr.io --quiet
+
+      - name: Build container image
         working-directory: backend
         run: |
-          gcloud builds submit \
-            --tag "${IMAGE}" \
-            --project "${PROJECT_ID}" \
-            .
+          IMAGE_SHA="${IMAGE}:${GITHUB_SHA}"
+          echo "IMAGE_SHA=${IMAGE_SHA}" >> "$GITHUB_ENV"
+          docker build -t "${IMAGE}:latest" -t "${IMAGE_SHA}" .
+
+      - name: Push image
+        run: |
+          docker push "${IMAGE}:latest"
+          docker push "${IMAGE_SHA}"
 
       - name: Deploy to Cloud Run
         run: |
           gcloud run deploy "${SERVICE}" \
-            --image "${IMAGE}" \
+            --image "${IMAGE_SHA}" \
             --project "${PROJECT_ID}" \
             --region "${REGION}" \
             --platform managed \
