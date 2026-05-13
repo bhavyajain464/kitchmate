@@ -212,6 +212,7 @@ func addItemsToInventory(db *sql.DB, items []services.BillItem, userID string) (
 				"shelf_life_days": shelfDays,
 				"estimated_expiry": expiry.Format("2006-01-02"),
 			})
+			RemoveFromShoppingList(db, userID, item.Name)
 		} else if err == sql.ErrNoRows {
 			var itemID string
 			err = db.QueryRow(`
@@ -234,6 +235,7 @@ func addItemsToInventory(db *sql.DB, items []services.BillItem, userID string) (
 				"shelf_life_days": shelfDays,
 				"estimated_expiry": expiry.Format("2006-01-02"),
 			})
+			RemoveFromShoppingList(db, userID, item.Name)
 		} else {
 			errors = append(errors, fmt.Sprintf("Database error for %s: %v", item.Name, err))
 		}

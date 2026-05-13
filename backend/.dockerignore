@@ -1,4 +1,6 @@
 .env
-main
-test_api.sh
+.env.*
+!.env.example
+bin/
+.git
 *.md

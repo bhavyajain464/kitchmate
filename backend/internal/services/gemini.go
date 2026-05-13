@@ -158,6 +158,85 @@ type BillItem struct {
 	ShelfLifeDays int     `json:"shelf_life_days,omitempty"`
 }
 
+// ShelfLifeEstimate holds an item name and its estimated shelf life
+type ShelfLifeEstimate struct {
+	Name          string `json:"name"`
+	ShelfLifeDays int    `json:"shelf_life_days"`
+}
+
+// EstimateShelfLife asks Gemini to estimate shelf life for a list of item names
+func (s *GeminiService) EstimateShelfLife(itemNames []string) ([]ShelfLifeEstimate, error) {
+	ctx := context.Background()
+	model := s.client.GenerativeModel(s.model)
+	model.SetTemperature(0.1)
+
+	prompt := fmt.Sprintf(`Estimate the shelf life in days for these kitchen/grocery items stored at home in typical Indian household conditions.
+
+Items: %s
+
+Rules:
+- Fresh vegetables: 5-10 days
+- Leafy greens: 2-3 days
+- Milk/dairy: 2-5 days
+- Paneer/tofu: 3-5 days
+- Rice/dal/flour/grains: 60-90 days
+- Spices (powder): 180 days
+- Whole spices: 365 days
+- Eggs: 14 days
+- Bread: 3-5 days
+- Fresh fruits: 3-7 days
+- Oil/ghee: 90 days
+- Sugar/salt/tea: 180 days
+- Packaged/canned food: 90-180 days
+
+Return ONLY a JSON array, no markdown:
+[{"name": "item name", "shelf_life_days": 30}]`, strings.Join(itemNames, ", "))
+
+	resp, err := model.GenerateContent(ctx, genai.Text(prompt))
+	if err != nil {
+		return nil, fmt.Errorf("gemini error: %w", err)
+	}
+
+	if resp.Candidates == nil || len(resp.Candidates) == 0 {
+		return nil, fmt.Errorf("no response from Gemini")
+	}
+
+	var responseText string
+	for _, part := range resp.Candidates[0].Content.Parts {
+		if text, ok := part.(genai.Text); ok {
+			responseText = string(text)
+			break
+		}
+	}
+
+	cleaned := strings.TrimSpace(responseText)
+	if strings.HasPrefix(cleaned, "```json") {
+		cleaned = strings.TrimPrefix(cleaned, "```json")
+	}
+	if strings.HasPrefix(cleaned, "```") {
+		cleaned = strings.TrimPrefix(cleaned, "```")
+	}
+	if strings.HasSuffix(cleaned, "```") {
+		cleaned = strings.TrimSuffix(cleaned, "```")
+	}
+	cleaned = strings.TrimSpace(cleaned)
+
+	var estimates []ShelfLifeEstimate
+	if err := json.Unmarshal([]byte(cleaned), &estimates); err != nil {
+		start := strings.Index(cleaned, "[")
+		end := strings.LastIndex(cleaned, "]")
+		if start != -1 && end != -1 && end > start {
+			if err2 := json.Unmarshal([]byte(cleaned[start:end+1]), &estimates); err2 != nil {
+				return nil, fmt.Errorf("failed to parse shelf life response: %v", err2)
+			}
+		} else {
+			return nil, fmt.Errorf("no valid JSON in response: %v", err)
+		}
+	}
+
+	return estimates, nil
+}
+
 // ParseBillItems parses the JSON response from Gemini into BillItem slice
 func ParseBillItems(jsonResponse string) ([]BillItem, error) {
 	// Clean the response - remove markdown code blocks if present

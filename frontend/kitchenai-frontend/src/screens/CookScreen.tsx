@@ -1,95 +1,49 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { StyleSheet, View, ScrollView, Alert } from 'react-native';
-import { Text, Card, Button, Divider, ActivityIndicator } from 'react-native-paper';
-import { RescueMealCard } from '../components/RescueMealCard';
+import {
+  StyleSheet,
+  View,
+  ScrollView,
+  RefreshControl,
+  Alert,
+  Platform,
+  Pressable,
+} from 'react-native';
+import {
+  Text,
+  TextInput,
+  IconButton,
+  Chip,
+  Surface,
+  Button,
+  ActivityIndicator,
+} from 'react-native-paper';
+import { useRoute } from '@react-navigation/native';
 import * as api from '../services/api';
-import { CookProfile, RescueMealResponse, RescueMealSuggestion, WhatsAppResult } from '../types';
-import { colors } from '../theme';
+import { CookProfile } from '../types';
 
-const LANG_LABELS: Record<string, string> = { en: 'English', hi: 'Hindi', kn: 'Kannada' };
+interface SentMessage {
+  dish: string;
+  instructions: string;
+  time: string;
+}
 
 export function CookScreen() {
+  const route = useRoute<any>();
   const [cookProfile, setCookProfile] = useState<CookProfile | null>(null);
   const [profileLoading, setProfileLoading] = useState(true);
-  const [whatsappLoading, setWhatsappLoading] = useState(false);
-  const [whatsappResult, setWhatsappResult] = useState<WhatsAppResult | null>(null);
+  const [refreshing, setRefreshing] = useState(false);
 
-  const [rescueLoading, setRescueLoading] = useState(false);
-  const [rescueResult, setRescueResult] = useState<RescueMealResponse | null>(null);
-  const [rescueError, setRescueError] = useState<string | null>(null);
+  const [dishName, setDishName] = useState('');
+  const [instructions, setInstructions] = useState('');
+  const [sending, setSending] = useState(false);
+  const [sentMessages, setSentMessages] = useState<SentMessage[]>([]);
 
-  const handleSendTestMessage = async () => {
-    setWhatsappLoading(true);
-    try {
-      const result = await api.sendWhatsAppMessage(
-        '+919876543210',
-        'Hello from Kitchen AI! This is a test message.',
-      );
-      setWhatsappResult(result);
-      Alert.alert('Sent!', 'Test message sent via WhatsApp.');
-    } catch {
-      Alert.alert('Failed', 'Could not send message.');
-    } finally {
-      setWhatsappLoading(false);
-    }
-  };
+  useEffect(() => {
+    if (route.params?.dishName) setDishName(route.params.dishName);
+    if (route.params?.instructions) setInstructions(route.params.instructions);
+  }, [route.params?.dishName, route.params?.instructions]);
 
-  const handleSendMealSuggestion = async () => {
-    setWhatsappLoading(true);
-    try {
-      const result = await api.sendMealSuggestion(
-        'Paneer Butter Masala',
-        [
-          { name: 'Paneer', quantity: 200, unit: 'grams' },
-          { name: 'Tomato', quantity: 3, unit: 'pieces' },
-          { name: 'Cream', quantity: 100, unit: 'ml' },
-        ],
-        30,
-      );
-      setWhatsappResult(result);
-      Alert.alert('Sent!', 'Meal suggestion sent to cook.');
-    } catch {
-      Alert.alert('Failed', 'Could not send meal suggestion.');
-    } finally {
-      setWhatsappLoading(false);
-    }
-  };
-
-  const handleSendDailyMenu = async () => {
-    setWhatsappLoading(true);
-    try {
-      const result = await api.sendDailyMenu([
-        { name: 'Paneer Butter Masala', cooking_time: 30 },
-        { name: 'Dal Tadka', cooking_time: 25 },
-        { name: 'Jeera Rice', cooking_time: 20 },
-      ]);
-      setWhatsappResult(result);
-      Alert.alert('Sent!', 'Daily menu sent to cook.');
-    } catch {
-      Alert.alert('Failed', 'Could not send daily menu.');
-    } finally {
-      setWhatsappLoading(false);
-    }
-  };
-
-  const handleSendMealToCook = async (meal: RescueMealSuggestion) => {
-    setWhatsappLoading(true);
-    try {
-      const result = await api.sendMealSuggestion(
-        meal.meal_name,
-        meal.ingredients,
-        meal.cooking_time,
-      );
-      setWhatsappResult(result);
-      Alert.alert('Sent!', `${meal.meal_name} sent to cook via WhatsApp.`);
-    } catch {
-      Alert.alert('Failed', 'Could not send meal to cook.');
-    } finally {
-      setWhatsappLoading(false);
-    }
-  };
-
-  const loadCookProfile = useCallback(async () => {
+  const loadProfile = useCallback(async () => {
     try {
       setProfileLoading(true);
       const profile = await api.fetchCookProfile();
@@ -101,293 +55,271 @@ export function CookScreen() {
     }
   }, []);
 
-  useEffect(() => {
-    loadCookProfile();
-  }, [loadCookProfile]);
+  useEffect(() => { loadProfile(); }, [loadProfile]);
 
-  const handleGetRescueMeals = async () => {
-    setRescueLoading(true);
-    setRescueError(null);
-    setRescueResult(null);
+  const onRefresh = useCallback(async () => {
+    setRefreshing(true);
+    await loadProfile();
+    setRefreshing(false);
+  }, [loadProfile]);
 
+  const dishesKnown = cookProfile?.dishes_known || [];
+
+  const handleSendToCook = async () => {
+    const dish = dishName.trim();
+    if (!dish) return;
+
+    setSending(true);
     try {
-      const result = await api.getRescueMealSuggestions(3);
-      setRescueResult(result);
-      Alert.alert(
-        'Rescue Meals Generated!',
-        `Found ${result.suggestions.length} suggestions from ${result.expiring_items.length} expiring items.`,
-      );
+      const ingredients = [{ name: dish, quantity: 1, unit: 'dish' }];
+      await api.sendMealSuggestion(dish, ingredients, 30);
+
+      const now = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+      setSentMessages((prev) => [{ dish, instructions: instructions.trim(), time: now }, ...prev]);
+
+      const msg = `Sent "${dish}" to cook!`;
+      Platform.OS === 'web' ? window.alert(msg) : Alert.alert('Sent!', msg);
+      setDishName('');
+      setInstructions('');
     } catch {
-      setRescueError('Could not generate rescue meal suggestions.');
-      Alert.alert('Failed', 'Could not generate rescue meal suggestions.');
+      const msg = 'Could not send to cook. Check WhatsApp setup.';
+      Platform.OS === 'web' ? window.alert(msg) : Alert.alert('Failed', msg);
     } finally {
-      setRescueLoading(false);
+      setSending(false);
     }
   };
 
+  const isKnown = (dish: string) =>
+    dishesKnown.some((d) => d.toLowerCase().includes(dish.toLowerCase()) || dish.toLowerCase().includes(d.toLowerCase()));
+
   return (
-    <ScrollView style={styles.container} contentContainerStyle={styles.content}>
-      {/* Cook Profile */}
-      <Card style={styles.card} mode="elevated">
-        <Card.Content>
-          <Text variant="titleLarge" style={styles.cardTitle}>
-            Cook Profile
-          </Text>
-          {profileLoading ? (
-            <ActivityIndicator style={{ marginVertical: 12 }} />
-          ) : cookProfile ? (
-            <>
-              <Text variant="bodyMedium" style={styles.meta}>
-                Language: {LANG_LABELS[cookProfile.preferred_lang] || cookProfile.preferred_lang}
-              </Text>
-              <Text variant="bodyMedium" style={styles.meta}>
-                Dishes Known: {cookProfile.dishes_known?.length || 0}
-              </Text>
-              {cookProfile.dishes_known?.length > 0 && (
-                <Text variant="bodySmall" style={styles.meta}>
-                  {cookProfile.dishes_known.join(', ')}
-                </Text>
-              )}
-              {cookProfile.phone_number ? (
-                <Text variant="bodyMedium" style={styles.available}>
-                  WhatsApp: {cookProfile.phone_number}
-                </Text>
-              ) : null}
-            </>
-          ) : (
-            <Text variant="bodyMedium" style={styles.meta}>
-              No cook profile set up yet.
-            </Text>
-          )}
-        </Card.Content>
-      </Card>
+    <ScrollView
+      style={styles.container}
+      contentContainerStyle={styles.scrollContent}
+      refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
+      showsVerticalScrollIndicator={false}
+    >
+      {/* Header */}
+      <View style={styles.header}>
+        <IconButton icon="chef-hat" iconColor="rgba(255,255,255,0.4)" size={40} style={styles.headerBg} />
+        <Text variant="headlineSmall" style={styles.headerTitle}>Cook Communication</Text>
+        <Text variant="bodyMedium" style={styles.headerSub}>Send dish instructions via WhatsApp</Text>
+      </View>
 
-      {/* WhatsApp Actions */}
-      <Card style={styles.card} mode="elevated">
-        <Card.Content>
-          <Text variant="titleLarge" style={styles.cardTitle}>
-            WhatsApp Communication
-          </Text>
-          <Text variant="bodySmall" style={styles.description}>
-            Send messages to your cook in their preferred language.
-          </Text>
+      {/* Send Instructions Card */}
+      <Surface style={styles.sendCard} elevation={2}>
+        <Text variant="titleSmall" style={styles.cardLabel}>What should the cook make?</Text>
 
-          <View style={styles.buttonGroup}>
-            <Button
-              mode="contained"
-              icon="message-text"
-              onPress={handleSendTestMessage}
-              loading={whatsappLoading}
-              disabled={whatsappLoading}
-              buttonColor={colors.whatsapp}
-              style={styles.waBtn}
-            >
-              Send Test Message
-            </Button>
+        <TextInput
+          mode="outlined"
+          placeholder="Dish name, e.g. Paneer Butter Masala"
+          value={dishName}
+          onChangeText={setDishName}
+          style={styles.input}
+          dense
+          outlineColor="#E0E0E0"
+          activeOutlineColor="#25D366"
+          outlineStyle={{ borderRadius: 12 }}
+          left={<TextInput.Icon icon="food" color="#bbb" />}
+        />
 
-            <Button
-              mode="contained"
-              icon="food"
-              onPress={handleSendMealSuggestion}
-              loading={whatsappLoading}
-              disabled={whatsappLoading}
-              buttonColor={colors.whatsapp}
-              style={styles.waBtn}
-            >
-              Send Meal Suggestion
-            </Button>
-
-            <Button
-              mode="contained"
-              icon="clipboard-list"
-              onPress={handleSendDailyMenu}
-              loading={whatsappLoading}
-              disabled={whatsappLoading}
-              buttonColor={colors.whatsapp}
-              style={styles.waBtn}
-            >
-              Send Daily Menu
-            </Button>
-
-            <Button
-              mode="outlined"
-              icon="test-tube"
-              onPress={async () => {
-                try {
-                  const res = await api.testWhatsApp();
-                  Alert.alert('WhatsApp Test', `Status: ${res.status}\n${res.message}`);
-                } catch {
-                  Alert.alert('Failed', 'Could not test WhatsApp integration.');
-                }
-              }}
-              style={styles.waBtn}
-            >
-              Test Integration
-            </Button>
+        {dishName.trim() !== '' && (
+          <View style={styles.knownRow}>
+            {isKnown(dishName) ? (
+              <Surface style={[styles.knownBadge, { backgroundColor: '#E8F5E9' }]} elevation={0}>
+                <IconButton icon="check-circle" iconColor="#2E7D32" size={16} style={{ margin: 0 }} />
+                <Text style={styles.knownText}>Cook knows this dish</Text>
+              </Surface>
+            ) : (
+              <Surface style={[styles.knownBadge, { backgroundColor: '#FFF3E0' }]} elevation={0}>
+                <IconButton icon="alert-circle-outline" iconColor="#E65100" size={16} style={{ margin: 0 }} />
+                <Text style={styles.unknownText}>Cook may not know this — add detailed instructions</Text>
+              </Surface>
+            )}
           </View>
+        )}
 
-          {whatsappResult && (
-            <Card style={styles.resultCard} mode="contained">
-              <Card.Content>
-                <Text variant="labelLarge" style={styles.resultLabel}>
-                  WhatsApp Result
-                </Text>
-                <Text variant="bodySmall">
-                  Status: {whatsappResult.status || 'unknown'}
-                  {whatsappResult.message_id && `\nMessage ID: ${whatsappResult.message_id}`}
-                  {whatsappResult.translated != null &&
-                    `\nTranslated: ${whatsappResult.translated ? 'Yes' : 'No'}`}
-                </Text>
-              </Card.Content>
-            </Card>
-          )}
-        </Card.Content>
-      </Card>
+        <TextInput
+          mode="outlined"
+          placeholder="Special instructions, e.g. make it spicy, less oil..."
+          value={instructions}
+          onChangeText={setInstructions}
+          multiline
+          numberOfLines={3}
+          style={styles.input}
+          outlineColor="#E0E0E0"
+          activeOutlineColor="#25D366"
+          outlineStyle={{ borderRadius: 12 }}
+          left={<TextInput.Icon icon="message-text-outline" color="#bbb" />}
+        />
 
-      <Divider style={styles.divider} />
+        <Button
+          mode="contained"
+          icon="whatsapp"
+          onPress={handleSendToCook}
+          loading={sending}
+          disabled={sending || !dishName.trim()}
+          buttonColor="#25D366"
+          style={styles.sendBtn}
+          contentStyle={{ paddingVertical: 4 }}
+        >
+          Send to Cook
+        </Button>
+      </Surface>
 
-      {/* Rescue Meals */}
-      <Card style={styles.card} mode="elevated">
-        <Card.Content>
-          <Text variant="titleLarge" style={styles.cardTitle}>
-            Rescue Meal Suggestions
+      {/* Cook Profile */}
+      <Surface style={styles.profileCard} elevation={1}>
+        <View style={styles.profileHeader}>
+          <View style={styles.profileAvatar}>
+            <IconButton icon="account-circle" iconColor="#fff" size={24} style={{ margin: 0 }} />
+          </View>
+          <Text variant="titleSmall" style={styles.profileTitle}>Cook Profile</Text>
+        </View>
+
+        {profileLoading ? (
+          <ActivityIndicator style={{ marginVertical: 16 }} />
+        ) : cookProfile ? (
+          <View style={styles.profileBody}>
+            <View style={styles.profileRow}>
+              <Text variant="bodyMedium" style={styles.profileLabel}>Language</Text>
+              <Chip compact style={styles.langChip}>
+                {cookProfile.preferred_lang === 'hi' ? 'Hindi' : cookProfile.preferred_lang === 'kn' ? 'Kannada' : 'English'}
+              </Chip>
+            </View>
+            {cookProfile.phone_number ? (
+              <View style={styles.profileRow}>
+                <Text variant="bodyMedium" style={styles.profileLabel}>WhatsApp</Text>
+                <Text variant="bodyMedium" style={styles.phoneText}>{cookProfile.phone_number}</Text>
+              </View>
+            ) : (
+              <Text variant="bodySmall" style={styles.noPhone}>
+                No phone number set. Update cook profile to enable WhatsApp.
+              </Text>
+            )}
+          </View>
+        ) : (
+          <Text variant="bodyMedium" style={styles.noProfile}>No cook profile set up.</Text>
+        )}
+      </Surface>
+
+      {/* Dishes Known */}
+      {dishesKnown.length > 0 && (
+        <Surface style={styles.dishesCard} elevation={1}>
+          <Text variant="titleSmall" style={styles.cardLabel}>
+            Dishes Cook Knows ({dishesKnown.length})
           </Text>
-          <Text variant="bodySmall" style={styles.description}>
-            AI-powered meal ideas using expiring items and cook skills.
-          </Text>
+          <View style={styles.dishesGrid}>
+            {dishesKnown.map((dish, i) => (
+              <Pressable key={i} onPress={() => setDishName(dish)}>
+                <Chip compact icon="check" style={styles.dishChip} textStyle={styles.dishChipText}>{dish}</Chip>
+              </Pressable>
+            ))}
+          </View>
+          <Text variant="bodySmall" style={styles.dishHint}>Tap a dish to pre-fill</Text>
+        </Surface>
+      )}
 
-          <Button
-            mode="contained"
-            icon="robot"
-            onPress={handleGetRescueMeals}
-            loading={rescueLoading}
-            disabled={rescueLoading}
-            buttonColor="#FF9800"
-            style={styles.rescueBtn}
-            contentStyle={styles.rescueBtnContent}
-          >
-            Generate Rescue Meals
-          </Button>
-
-          {rescueError && (
-            <Text variant="bodySmall" style={styles.errorText}>
-              {rescueError}
-            </Text>
-          )}
-        </Card.Content>
-      </Card>
-
-      {rescueResult && (
-        <View style={styles.rescueResults}>
-          <Text variant="titleMedium" style={styles.rescueResultTitle}>
-            {rescueResult.suggestions.length} Meal Suggestions
-          </Text>
-          <Text variant="bodySmall" style={styles.rescueResultSubtitle}>
-            Based on {rescueResult.expiring_items.length} expiring items
-            {rescueResult.cook_skills.length > 0 &&
-              ` | Cook skills: ${rescueResult.cook_skills.join(', ')}`}
-          </Text>
-
-          {rescueResult.suggestions.map((meal) => (
-            <RescueMealCard
-              key={meal.meal_id}
-              meal={meal}
-              onSendToCook={handleSendMealToCook}
-            />
+      {/* Sent History */}
+      {sentMessages.length > 0 && (
+        <View style={styles.historyWrap}>
+          <Text variant="titleSmall" style={styles.historyLabel}>Sent Today</Text>
+          {sentMessages.map((msg, i) => (
+            <Surface key={i} style={styles.historyCard} elevation={0}>
+              <View style={styles.historyDot} />
+              <View style={styles.historyInfo}>
+                <Text variant="bodyMedium" style={styles.historyDish}>{msg.dish}</Text>
+                {msg.instructions ? (
+                  <Text variant="bodySmall" style={styles.historyInst} numberOfLines={2}>{msg.instructions}</Text>
+                ) : null}
+              </View>
+              <Text variant="labelSmall" style={styles.historyTime}>{msg.time}</Text>
+            </Surface>
           ))}
-
-          {rescueResult.user_preferences && (
-            <Card style={styles.prefsCard} mode="contained">
-              <Card.Content>
-                <Text variant="labelLarge">User Preferences</Text>
-                <Text variant="bodySmall">
-                  Cuisines:{' '}
-                  {rescueResult.user_preferences.preferred_cuisines?.join(', ') || 'None'}
-                  {'\n'}
-                  Dietary:{' '}
-                  {rescueResult.user_preferences.dietary_restrictions?.join(', ') || 'None'}
-                </Text>
-              </Card.Content>
-            </Card>
-          )}
         </View>
       )}
 
-      <View style={styles.bottomSpacer} />
+      <View style={{ height: 32 }} />
     </ScrollView>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: '#F8F9FA',
+  container: { flex: 1, backgroundColor: '#F8F9FA' },
+  scrollContent: { paddingBottom: 24 },
+
+  header: {
+    backgroundColor: '#128C7E',
+    paddingHorizontal: 20,
+    paddingTop: 12,
+    paddingBottom: 24,
+    borderBottomLeftRadius: 28,
+    borderBottomRightRadius: 28,
+    overflow: 'hidden',
   },
-  content: {
+  headerBg: { position: 'absolute', top: 8, right: 8, opacity: 0.15 },
+  headerTitle: { color: '#fff', fontWeight: '800' },
+  headerSub: { color: 'rgba(255,255,255,0.85)', marginTop: 4 },
+
+  sendCard: {
+    marginHorizontal: 20,
+    marginTop: -12,
+    borderRadius: 18,
+    backgroundColor: '#fff',
+    padding: 18,
+  },
+  cardLabel: { fontWeight: '700', color: '#333', marginBottom: 12 },
+  input: { backgroundColor: '#fff', marginBottom: 10 },
+
+  knownRow: { marginBottom: 10 },
+  knownBadge: { flexDirection: 'row', alignItems: 'center', paddingVertical: 6, paddingHorizontal: 10, borderRadius: 10, gap: 2 },
+  knownText: { color: '#2E7D32', fontSize: 12, fontWeight: '600' },
+  unknownText: { color: '#E65100', fontSize: 12, fontWeight: '600', flex: 1 },
+
+  sendBtn: { borderRadius: 12, marginTop: 4 },
+
+  profileCard: {
+    marginHorizontal: 20,
+    marginTop: 14,
+    borderRadius: 16,
+    backgroundColor: '#fff',
     padding: 16,
   },
-  card: {
-    marginBottom: 16,
+  profileHeader: { flexDirection: 'row', alignItems: 'center', marginBottom: 12, gap: 10 },
+  profileAvatar: { width: 36, height: 36, borderRadius: 18, backgroundColor: '#128C7E', justifyContent: 'center', alignItems: 'center' },
+  profileTitle: { fontWeight: '700', color: '#333' },
+  profileBody: { gap: 8 },
+  profileRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  profileLabel: { color: '#888' },
+  langChip: { backgroundColor: '#E8F5E9' },
+  phoneText: { color: '#25D366', fontWeight: '600' },
+  noPhone: { color: '#E65100' },
+  noProfile: { color: '#999' },
+
+  dishesCard: {
+    marginHorizontal: 20,
+    marginTop: 14,
+    borderRadius: 16,
+    backgroundColor: '#fff',
+    padding: 16,
   },
-  cardTitle: {
-    fontWeight: 'bold',
+  dishesGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
+  dishChip: { backgroundColor: '#E8F5E9' },
+  dishChipText: { fontSize: 12, color: '#2E7D32' },
+  dishHint: { color: '#bbb', marginTop: 10, fontStyle: 'italic', fontSize: 12 },
+
+  historyWrap: { paddingHorizontal: 20, marginTop: 20 },
+  historyLabel: { fontWeight: '700', color: '#555', marginBottom: 10 },
+  historyCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#F5F5F5',
+    borderRadius: 12,
+    padding: 14,
     marginBottom: 8,
   },
-  meta: {
-    color: '#666',
-    marginTop: 2,
-  },
-  available: {
-    color: '#4CAF50',
-    fontWeight: '600',
-    marginTop: 8,
-  },
-  description: {
-    color: '#666',
-    marginBottom: 16,
-  },
-  buttonGroup: {
-    gap: 10,
-  },
-  waBtn: {
-    borderRadius: 10,
-  },
-  resultCard: {
-    marginTop: 16,
-    backgroundColor: '#E8F5E9',
-  },
-  resultLabel: {
-    color: '#1B5E20',
-    marginBottom: 4,
-  },
-  divider: {
-    marginBottom: 16,
-  },
-  rescueBtn: {
-    borderRadius: 12,
-  },
-  rescueBtnContent: {
-    paddingVertical: 4,
-  },
-  errorText: {
-    color: '#F44336',
-    marginTop: 12,
-  },
-  rescueResults: {
-    marginBottom: 16,
-  },
-  rescueResultTitle: {
-    fontWeight: 'bold',
-    marginBottom: 4,
-  },
-  rescueResultSubtitle: {
-    color: '#666',
-    marginBottom: 12,
-  },
-  prefsCard: {
-    backgroundColor: '#E3F2FD',
-  },
-  bottomSpacer: {
-    height: 24,
-  },
+  historyDot: { width: 8, height: 8, borderRadius: 4, backgroundColor: '#25D366', marginRight: 12 },
+  historyInfo: { flex: 1 },
+  historyDish: { fontWeight: '600', color: '#333' },
+  historyInst: { color: '#888', marginTop: 2 },
+  historyTime: { color: '#bbb' },
 });

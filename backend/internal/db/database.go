@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"fmt"
 	"log"
+	"time"
 
 	_ "github.com/lib/pq"
 )
@@ -13,8 +14,9 @@ type Database struct {
 	db *sql.DB
 }
 
-// InitDB initializes a new database connection
-func InitDB(dataSourceName string) (*Database, error) {
+// InitDB initializes a new database connection with an explicit pool size so a small API
+// does not open dozens of connections to a shared Postgres.
+func InitDB(dataSourceName string, maxOpen, maxIdle int, connMaxLifetime, connMaxIdleTime time.Duration) (*Database, error) {
 	sqlDB, err := sql.Open("postgres", dataSourceName)
 	if err != nil {
 		return nil, fmt.Errorf("failed to open database: %w", err)
@@ -25,7 +27,15 @@ func InitDB(dataSourceName string) (*Database, error) {
 		return nil, fmt.Errorf("failed to ping database: %w", err)
 	}
 
-	log.Println("Database connection established successfully")
+	sqlDB.SetMaxOpenConns(maxOpen)
+	sqlDB.SetMaxIdleConns(maxIdle)
+	sqlDB.SetConnMaxLifetime(connMaxLifetime)
+	if connMaxIdleTime > 0 {
+		sqlDB.SetConnMaxIdleTime(connMaxIdleTime)
+	}
+
+	log.Printf("Database pool: maxOpen=%d maxIdle=%d maxLifetime=%v maxIdleTime=%v",
+		maxOpen, maxIdle, connMaxLifetime, connMaxIdleTime)
 	return &Database{db: sqlDB}, nil
 }
 

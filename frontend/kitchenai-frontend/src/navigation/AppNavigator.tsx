@@ -1,15 +1,17 @@
-import React from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { ActivityIndicator, View, StyleSheet, Text as RNText, Platform } from 'react-native';
 import { NavigationContainer } from '@react-navigation/native';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { useAuth } from '../context/AuthContext';
 import { LoginScreen } from '../screens/LoginScreen';
+import { OnboardingScreen } from '../screens/OnboardingScreen';
 import { HomeScreen } from '../screens/HomeScreen';
 import { InventoryScreen } from '../screens/InventoryScreen';
 import { MealsScreen } from '../screens/MealsScreen';
 import { CookScreen } from '../screens/CookScreen';
 import { ShoppingScreen } from '../screens/ShoppingScreen';
 import { ProfileScreen } from '../screens/ProfileScreen';
+import * as api from '../services/api';
 
 const Tab = createBottomTabNavigator();
 
@@ -55,13 +57,40 @@ function LoadingScreen() {
 
 export function AppNavigator() {
   const { token, loading } = useAuth();
+  const [onboardingDone, setOnboardingDone] = useState<boolean | null>(null);
+  const [checkingOnboarding, setCheckingOnboarding] = useState(false);
 
-  if (loading) {
+  const checkOnboarding = useCallback(async () => {
+    if (!token) return;
+    setCheckingOnboarding(true);
+    try {
+      const res = await api.getOnboardingStatus();
+      setOnboardingDone(res.onboarding_done);
+    } catch {
+      setOnboardingDone(true);
+    } finally {
+      setCheckingOnboarding(false);
+    }
+  }, [token]);
+
+  useEffect(() => {
+    if (token) {
+      checkOnboarding();
+    } else {
+      setOnboardingDone(null);
+    }
+  }, [token, checkOnboarding]);
+
+  if (loading || (token && (checkingOnboarding || onboardingDone === null))) {
     return <LoadingScreen />;
   }
 
   if (!token) {
     return <LoginScreen />;
+  }
+
+  if (onboardingDone === false) {
+    return <OnboardingScreen onComplete={() => setOnboardingDone(true)} />;
   }
 
   return (
@@ -75,41 +104,15 @@ export function AppNavigator() {
           tabBarInactiveTintColor: '#999',
           tabBarStyle: styles.tabBar,
           tabBarLabelStyle: styles.tabLabel,
-          headerStyle: styles.header,
-          headerTintColor: '#fff',
-          headerTitleStyle: styles.headerTitle,
+          headerShown: false,
         })}
       >
-        <Tab.Screen
-          name="Home"
-          component={HomeScreen}
-          options={{ title: 'Kitchen AI' }}
-        />
-        <Tab.Screen
-          name="Inventory"
-          component={InventoryScreen}
-          options={{ title: 'Inventory' }}
-        />
-        <Tab.Screen
-          name="Meals"
-          component={MealsScreen}
-          options={{ title: 'Smart Meals', headerStyle: { backgroundColor: '#FF9800' } }}
-        />
-        <Tab.Screen
-          name="Cook"
-          component={CookScreen}
-          options={{ title: 'Cook & WhatsApp' }}
-        />
-        <Tab.Screen
-          name="Shopping"
-          component={ShoppingScreen}
-          options={{ title: 'Shopping' }}
-        />
-        <Tab.Screen
-          name="Profile"
-          component={ProfileScreen}
-          options={{ title: 'Profile', headerStyle: { backgroundColor: '#607D8B' } }}
-        />
+        <Tab.Screen name="Home" component={HomeScreen} options={{ title: 'Home' }} />
+        <Tab.Screen name="Inventory" component={InventoryScreen} options={{ title: 'Inventory' }} />
+        <Tab.Screen name="Meals" component={MealsScreen} options={{ title: 'Meals' }} />
+        <Tab.Screen name="Cook" component={CookScreen} options={{ title: 'Cook' }} />
+        <Tab.Screen name="Shopping" component={ShoppingScreen} options={{ title: 'Shopping' }} />
+        <Tab.Screen name="Profile" component={ProfileScreen} options={{ title: 'Profile' }} />
       </Tab.Navigator>
     </NavigationContainer>
   );
@@ -127,21 +130,18 @@ const styles = StyleSheet.create({
   },
   tabBar: {
     backgroundColor: '#fff',
-    borderTopWidth: 1,
-    borderTopColor: '#E0E0E0',
-    paddingBottom: 4,
-    paddingTop: 4,
-    height: 60,
+    borderTopWidth: 0,
+    elevation: 12,
+    shadowColor: '#000',
+    shadowOpacity: 0.08,
+    shadowRadius: 12,
+    shadowOffset: { width: 0, height: -4 },
+    paddingBottom: 6,
+    paddingTop: 6,
+    height: 64,
   },
   tabLabel: {
     fontSize: 11,
     fontWeight: '600',
-  },
-  header: {
-    backgroundColor: '#4CAF50',
-  },
-  headerTitle: {
-    fontWeight: 'bold',
-    color: '#fff',
   },
 });

@@ -11,6 +11,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"strings"
 	"time"
@@ -131,11 +132,12 @@ func (s *AuthService) GetSessionByToken(token string, metadata AuthAccessMetadat
 		return nil, err
 	}
 
-	// Update last used at
-	if err := s.updateSessionLastUsed(claims.SessionID, metadata); err != nil {
-		// Log but don't fail
-		fmt.Printf("Failed to update session last used: %v\n", err)
-	}
+	// Touch session in DB without blocking the request (remote DB latency adds up per call).
+	go func(sid string, meta AuthAccessMetadata) {
+		if err := s.updateSessionLastUsed(sid, meta); err != nil {
+			log.Printf("Failed to update session last used: %v", err)
+		}
+	}(claims.SessionID, metadata)
 
 	return session, nil
 }

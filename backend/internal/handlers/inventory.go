@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"time"
 
+	kafkalib "kitchenai-backend/internal/kafka"
 	"kitchenai-backend/internal/middleware"
 	"kitchenai-backend/internal/models"
 
@@ -19,15 +20,16 @@ func getUserID(r *http.Request) string {
 	return ""
 }
 
-// GetInventory returns all inventory items for the authenticated user
+// GetInventory returns non-expired inventory items for the authenticated user
 func GetInventory(db *sql.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		userID := getUserID(r)
 		rows, err := db.Query(`
 			SELECT item_id, canonical_name, qty, unit, estimated_expiry, is_manual, created_at, updated_at
 			FROM inventory
-			WHERE user_id = $1 OR user_id IS NULL
-			ORDER BY created_at DESC
+			WHERE (user_id = $1 OR user_id IS NULL)
+				AND (estimated_expiry IS NULL OR estimated_expiry >= CURRENT_DATE)
+			ORDER BY estimated_expiry ASC NULLS LAST, created_at DESC
 		`, userID)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -102,7 +104,7 @@ func GetInventoryItem(db *sql.DB) http.HandlerFunc {
 }
 
 // CreateInventoryItem creates a new inventory item
-func CreateInventoryItem(db *sql.DB) http.HandlerFunc {
+func CreateInventoryItem(db *sql.DB, producer *kafkalib.Producer) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		userID := getUserID(r)
 		var req models.InventoryRequest
@@ -161,6 +163,15 @@ func CreateInventoryItem(db *sql.DB) http.HandlerFunc {
 			IsManual:        req.IsManual,
 			CreatedAt:       createdAt,
 			UpdatedAt:       updatedAt,
+		}
+
+		RemoveFromShoppingList(db, userID, req.CanonicalName)
+
+		if expiry == nil && producer != nil {
+			producer.PublishShelfLifeEvent(kafkalib.ShelfLifeEvent{
+				ItemIDs: []string{itemID},
+				UserID:  userID,
+			})
 		}
 
 		w.Header().Set("Content-Type", "application/json")
@@ -256,21 +267,43 @@ func DeleteInventoryItem(db *sql.DB) http.HandlerFunc {
 	}
 }
 
-// GetExpiringItems returns items that are expiring soon (within 3 days)
+// ExpireInventoryItem sets an item's expiry to yesterday, moving it to the expired tab
+func ExpireInventoryItem(db *sql.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		vars := mux.Vars(r)
+		id := vars["id"]
+		userID := getUserID(r)
+
+		result, err := db.Exec(
+			`UPDATE inventory SET estimated_expiry = CURRENT_DATE - INTERVAL '1 day', updated_at = NOW()
+			 WHERE item_id = $1 AND (user_id = $2 OR user_id IS NULL)`, id, userID)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+
+		rowsAffected, _ := result.RowsAffected()
+		if rowsAffected == 0 {
+			http.Error(w, "Item not found", http.StatusNotFound)
+			return
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]string{"message": "Item marked as expired"})
+	}
+}
+
+// GetExpiringItems returns non-expired items expiring within 2 days
 func GetExpiringItems(db *sql.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		userID := getUserID(r)
 		rows, err := db.Query(`
-			SELECT 
-				item_id, 
-				canonical_name, 
-				qty, 
-				unit, 
-				estimated_expiry,
+			SELECT
+				item_id, canonical_name, qty, unit, estimated_expiry,
 				(estimated_expiry - CURRENT_DATE) as days_until_expiry
-			FROM inventory 
-			WHERE estimated_expiry IS NOT NULL 
-				AND estimated_expiry >= CURRENT_DATE - INTERVAL '2 days'
+			FROM inventory
+			WHERE estimated_expiry IS NOT NULL
+				AND estimated_expiry >= CURRENT_DATE
 				AND estimated_expiry <= CURRENT_DATE + INTERVAL '7 days'
 				AND (user_id = $1 OR user_id IS NULL)
 			ORDER BY estimated_expiry ASC
@@ -284,14 +317,43 @@ func GetExpiringItems(db *sql.DB) http.HandlerFunc {
 		items := make([]models.ExpiringItem, 0)
 		for rows.Next() {
 			var item models.ExpiringItem
-			err := rows.Scan(
-				&item.ItemID,
-				&item.CanonicalName,
-				&item.Qty,
-				&item.Unit,
-				&item.EstimatedExpiry,
-				&item.DaysUntilExpiry,
-			)
+			err := rows.Scan(&item.ItemID, &item.CanonicalName, &item.Qty, &item.Unit, &item.EstimatedExpiry, &item.DaysUntilExpiry)
+			if err != nil {
+				http.Error(w, err.Error(), http.StatusInternalServerError)
+				return
+			}
+			items = append(items, item)
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(items)
+	}
+}
+
+// GetExpiredItems returns items that have already expired
+func GetExpiredItems(db *sql.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		userID := getUserID(r)
+		rows, err := db.Query(`
+			SELECT
+				item_id, canonical_name, qty, unit, estimated_expiry,
+				(CURRENT_DATE - estimated_expiry) as days_since_expiry
+			FROM inventory
+			WHERE estimated_expiry IS NOT NULL
+				AND estimated_expiry < CURRENT_DATE
+				AND (user_id = $1 OR user_id IS NULL)
+			ORDER BY estimated_expiry DESC
+		`, userID)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		defer rows.Close()
+
+		items := make([]models.ExpiringItem, 0)
+		for rows.Next() {
+			var item models.ExpiringItem
+			err := rows.Scan(&item.ItemID, &item.CanonicalName, &item.Qty, &item.Unit, &item.EstimatedExpiry, &item.DaysUntilExpiry)
 			if err != nil {
 				http.Error(w, err.Error(), http.StatusInternalServerError)
 				return

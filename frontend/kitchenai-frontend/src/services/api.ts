@@ -48,6 +48,12 @@ export async function fetchExpiringItems(): Promise<ExpiringItem[]> {
   return res.json();
 }
 
+export async function fetchExpiredItems(): Promise<ExpiringItem[]> {
+  const res = await authFetch(`${API_BASE_URL}/inventory/expired`);
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  return res.json();
+}
+
 export async function addInventoryItem(item: {
   canonical_name: string;
   qty: number;
@@ -66,6 +72,13 @@ export async function addInventoryItem(item: {
 export async function deleteInventoryItem(itemId: string): Promise<void> {
   const res = await authFetch(`${API_BASE_URL}/inventory/${itemId}`, {
     method: 'DELETE',
+  });
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+}
+
+export async function expireInventoryItem(itemId: string): Promise<void> {
+  const res = await authFetch(`${API_BASE_URL}/inventory/${itemId}/expire`, {
+    method: 'PATCH',
   });
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
 }
@@ -214,7 +227,58 @@ export async function getSimpleRescueMeal(): Promise<{ suggestion: string }> {
   return res.json();
 }
 
-// ─── Procurement ─────────────────────────────────────────────
+// ─── Shopping List ────────────────────────────────────────────
+
+export async function getShoppingItems(): Promise<any> {
+  const res = await authFetch(`${API_BASE_URL}/shopping`);
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  return res.json();
+}
+
+export async function addShoppingItem(name: string, qty: number = 1, unit: string = 'pcs'): Promise<any> {
+  const res = await authFetch(`${API_BASE_URL}/shopping`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name, qty, unit }),
+  });
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  return res.json();
+}
+
+export async function addBulkShoppingItems(items: { name: string; qty: number; unit: string }[]): Promise<any> {
+  const res = await authFetch(`${API_BASE_URL}/shopping/bulk`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(items),
+  });
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  return res.json();
+}
+
+export async function toggleShoppingItem(id: string): Promise<any> {
+  const res = await authFetch(`${API_BASE_URL}/shopping/${id}/toggle`, {
+    method: 'PATCH',
+  });
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  return res.json();
+}
+
+export async function deleteShoppingItem(id: string): Promise<void> {
+  const res = await authFetch(`${API_BASE_URL}/shopping/${id}`, {
+    method: 'DELETE',
+  });
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+}
+
+export async function clearBoughtItems(): Promise<any> {
+  const res = await authFetch(`${API_BASE_URL}/shopping/clear-bought`, {
+    method: 'DELETE',
+  });
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  return res.json();
+}
+
+// ─── Procurement (legacy) ────────────────────────────────────
 
 export async function fetchLowStockItems(): Promise<LowStockItem[]> {
   const res = await authFetch(`${API_BASE_URL}/procurement/low-stock`);
@@ -261,9 +325,11 @@ export async function sendPreMarketPing(
 
 // ─── Smart Meals (LLM-powered) ────────────────────────────────
 
-export async function getSmartMeals(userPrompt?: string): Promise<any> {
-  const params = userPrompt ? `?prompt=${encodeURIComponent(userPrompt)}` : '';
-  const res = await authFetch(`${API_BASE_URL}/meals/smart${params}`);
+export async function getSmartMeals(category: string, userPrompt?: string): Promise<any> {
+  const qp = new URLSearchParams();
+  qp.set('category', category);
+  if (userPrompt) qp.set('prompt', userPrompt);
+  const res = await authFetch(`${API_BASE_URL}/meals/smart?${qp.toString()}`);
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
   return res.json();
 }
@@ -287,6 +353,33 @@ export async function updateCookProfile(profile: {
     body: JSON.stringify(profile),
   });
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
+}
+
+// ─── Onboarding ───────────────────────────────────────────────
+
+export async function getOnboardingStatus(): Promise<{ onboarding_done: boolean }> {
+  const res = await authFetch(`${API_BASE_URL}/onboarding/status`);
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  return res.json();
+}
+
+export async function completeOnboarding(data: {
+  household_size: number;
+  dietary_tags: string[];
+  fav_cuisines: string[];
+  spice_level: string;
+  cooking_skill: string;
+  allergies: string[];
+  dislikes: string[];
+  items: { name: string; qty: number; unit: string }[];
+}): Promise<any> {
+  const res = await authFetch(`${API_BASE_URL}/onboarding/complete`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(data),
+  });
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  return res.json();
 }
 
 // ─── Profile & Memory ─────────────────────────────────────────

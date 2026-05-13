@@ -6,6 +6,7 @@ import (
 	"log"
 	"net/http"
 
+	kafkalib "kitchenai-backend/internal/kafka"
 	"kitchenai-backend/internal/models"
 
 	"github.com/google/uuid"
@@ -13,29 +14,128 @@ import (
 	"github.com/lib/pq"
 )
 
-func ensureProfileTables(db *sql.DB) {
-	queries := []string{
-		`ALTER TABLE user_prefs ADD COLUMN IF NOT EXISTS household_size INTEGER DEFAULT 2`,
-		`ALTER TABLE user_prefs ADD COLUMN IF NOT EXISTS allergies TEXT[] DEFAULT '{}'`,
-		`ALTER TABLE user_prefs ADD COLUMN IF NOT EXISTS spice_level TEXT DEFAULT 'medium'`,
-		`ALTER TABLE user_prefs ADD COLUMN IF NOT EXISTS cooking_skill TEXT DEFAULT 'intermediate'`,
-		`CREATE TABLE IF NOT EXISTS user_memory (
-			id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-			user_id UUID NOT NULL,
-			category TEXT NOT NULL DEFAULT 'general',
-			content TEXT NOT NULL,
-			created_at TIMESTAMP DEFAULT NOW()
-		)`,
-	}
-	for _, q := range queries {
-		if _, err := db.Exec(q); err != nil {
-			log.Printf("Profile table migration warning: %v", err)
+// GetOnboardingStatus checks if the user has completed onboarding
+func GetOnboardingStatus(db *sql.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		userID := getUserID(r)
+		if userID == "" {
+			http.Error(w, "Authentication required", http.StatusUnauthorized)
+			return
 		}
+
+		var done bool
+		err := db.QueryRow(`SELECT COALESCE(onboarding_done, FALSE) FROM user_prefs WHERE user_id = $1`, userID).Scan(&done)
+		if err != nil {
+			done = false
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]bool{"onboarding_done": done})
+	}
+}
+
+// CompleteOnboarding saves preferences and adds initial inventory items
+func CompleteOnboarding(db *sql.DB, producer *kafkalib.Producer) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		userID := getUserID(r)
+		if userID == "" {
+			http.Error(w, "Authentication required", http.StatusUnauthorized)
+			return
+		}
+
+		var req struct {
+			HouseholdSize int      `json:"household_size"`
+			DietaryTags   []string `json:"dietary_tags"`
+			FavCuisines   []string `json:"fav_cuisines"`
+			SpiceLevel    string   `json:"spice_level"`
+			CookingSkill  string   `json:"cooking_skill"`
+			Allergies     []string `json:"allergies"`
+			Dislikes      []string `json:"dislikes"`
+			Items         []struct {
+				Name string  `json:"name"`
+				Qty  float64 `json:"qty"`
+				Unit string  `json:"unit"`
+			} `json:"items"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+
+		tx, err := db.Begin()
+		if err != nil {
+			http.Error(w, "Server error", http.StatusInternalServerError)
+			return
+		}
+		defer tx.Rollback()
+
+		var exists bool
+		tx.QueryRow("SELECT EXISTS(SELECT 1 FROM user_prefs WHERE user_id = $1)", userID).Scan(&exists)
+
+		if exists {
+			_, err = tx.Exec(`
+				UPDATE user_prefs
+				SET household_size = $1, dietary_tags = $2, fav_cuisines = $3,
+					spice_level = $4, cooking_skill = $5, allergies = $6, dislikes = $7,
+					onboarding_done = TRUE, updated_at = NOW()
+				WHERE user_id = $8
+			`, req.HouseholdSize, pq.Array(req.DietaryTags), pq.Array(req.FavCuisines),
+				req.SpiceLevel, req.CookingSkill, pq.Array(req.Allergies), pq.Array(req.Dislikes), userID)
+		} else {
+			_, err = tx.Exec(`
+				INSERT INTO user_prefs (user_id, household_size, dietary_tags, fav_cuisines,
+					spice_level, cooking_skill, allergies, dislikes, onboarding_done)
+				VALUES ($1, $2, $3, $4, $5, $6, $7, $8, TRUE)
+			`, userID, req.HouseholdSize, pq.Array(req.DietaryTags), pq.Array(req.FavCuisines),
+				req.SpiceLevel, req.CookingSkill, pq.Array(req.Allergies), pq.Array(req.Dislikes))
+		}
+		if err != nil {
+			log.Printf("Onboarding prefs error: %v", err)
+			http.Error(w, "Failed to save preferences", http.StatusInternalServerError)
+			return
+		}
+
+		added := 0
+		var insertedIDs []string
+		for _, item := range req.Items {
+			if item.Name == "" || item.Qty <= 0 {
+				continue
+			}
+			var itemID string
+			err := tx.QueryRow(`
+				INSERT INTO inventory (canonical_name, qty, unit, is_manual, user_id)
+				VALUES ($1, $2, $3, TRUE, $4)
+				RETURNING item_id
+			`, item.Name, item.Qty, item.Unit, userID).Scan(&itemID)
+			if err != nil {
+				log.Printf("Onboarding item add error (%s): %v", item.Name, err)
+				continue
+			}
+			insertedIDs = append(insertedIDs, itemID)
+			added++
+		}
+
+		if err := tx.Commit(); err != nil {
+			http.Error(w, "Failed to complete onboarding", http.StatusInternalServerError)
+			return
+		}
+
+		if len(insertedIDs) > 0 && producer != nil {
+			producer.PublishShelfLifeEvent(kafkalib.ShelfLifeEvent{
+				ItemIDs: insertedIDs,
+				UserID:  userID,
+			})
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"message":     "Onboarding complete",
+			"items_added": added,
+		})
 	}
 }
 
 func GetProfile(db *sql.DB) http.HandlerFunc {
-	ensureProfileTables(db)
 	return func(w http.ResponseWriter, r *http.Request) {
 		userID := getUserID(r)
 		if userID == "" {

@@ -6,10 +6,10 @@ import { InventoryItem } from '../types';
 interface InventoryItemCardProps {
   item: InventoryItem;
   onPress?: () => void;
-  onDelete?: (item: InventoryItem) => void;
+  onExpire?: (item: InventoryItem) => void;
 }
 
-export function InventoryItemCard({ item, onPress, onDelete }: InventoryItemCardProps) {
+export function InventoryItemCard({ item, onPress, onExpire }: InventoryItemCardProps) {
   let daysLeft: number | null = null;
   if (item.estimated_expiry) {
     const expiry = new Date(item.estimated_expiry);
@@ -20,17 +20,14 @@ export function InventoryItemCard({ item, onPress, onDelete }: InventoryItemCard
   }
 
   const isUrgent = daysLeft !== null && daysLeft <= 2;
-  const isExpired = daysLeft !== null && daysLeft < 0;
 
   const expiryLabel = daysLeft === null
     ? null
-    : isExpired
-      ? `Expired ${Math.abs(daysLeft)} day${Math.abs(daysLeft) !== 1 ? 's' : ''} ago`
-      : daysLeft === 0
-        ? 'Expires today'
-        : daysLeft === 1
-          ? '1 day left'
-          : `${daysLeft} days left`;
+    : daysLeft === 0
+      ? 'Expires today'
+      : daysLeft === 1
+        ? '1 day left'
+        : `${daysLeft} days left`;
 
   return (
     <Card style={styles.card} mode="elevated" onPress={onPress}>
@@ -46,20 +43,19 @@ export function InventoryItemCard({ item, onPress, onDelete }: InventoryItemCard
             {expiryLabel && (
               <Text variant="bodySmall" style={[
                 styles.expiry,
-                isExpired && { color: '#F44336' },
-                isUrgent && !isExpired && { color: '#FF5722' },
+                isUrgent && { color: '#FF5722' },
               ]}>
                 {expiryLabel}
               </Text>
             )}
           </View>
-          {onDelete && (
+          {onExpire && (
             <IconButton
-              icon="delete-outline"
-              iconColor="#F44336"
+              icon="clock-remove-outline"
+              iconColor="#FF9800"
               size={22}
-              onPress={() => onDelete(item)}
-              style={styles.deleteBtn}
+              onPress={() => onExpire(item)}
+              style={styles.actionBtn}
             />
           )}
         </View>
@@ -93,7 +89,7 @@ const styles = StyleSheet.create({
     color: '#FF9800',
     fontWeight: '600',
   },
-  deleteBtn: {
+  actionBtn: {
     margin: 0,
   },
 });

@@ -24,23 +24,28 @@ import {
   ActivityIndicator,
   IconButton,
   Checkbox,
+  Snackbar,
 } from 'react-native-paper';
 import * as ImagePicker from 'expo-image-picker';
 import { InventoryItemCard } from '../components/InventoryItemCard';
-import { ExpiringItemCard } from '../components/ExpiringItemCard';
 import * as api from '../services/api';
 import { InventoryItem, ExpiringItem, ScanResult } from '../types';
 import { colors } from '../theme';
 
-type TabValue = 'all' | 'expiring';
+type TabValue = 'all' | 'expired';
 
 export function InventoryScreen() {
   const [inventory, setInventory] = useState<InventoryItem[]>([]);
   const [expiringItems, setExpiringItems] = useState<ExpiringItem[]>([]);
+  const [expiredItems, setExpiredItems] = useState<ExpiringItem[]>([]);
   const [search, setSearch] = useState('');
   const [tab, setTab] = useState<TabValue>('all');
+  const [expiringSoonFilter, setExpiringSoonFilter] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [loading, setLoading] = useState(true);
+
+  const [snackMsg, setSnackMsg] = useState('');
+  const [snackVisible, setSnackVisible] = useState(false);
 
   // FAB group
   const [fabOpen, setFabOpen] = useState(false);
@@ -63,16 +68,19 @@ export function InventoryScreen() {
 
   const loadData = useCallback(async () => {
     try {
-      const [inv, exp] = await Promise.all([
+      const [inv, exp, expd] = await Promise.all([
         api.fetchInventory(),
         api.fetchExpiringItems(),
+        api.fetchExpiredItems(),
       ]);
       setInventory(Array.isArray(inv) ? inv : []);
       setExpiringItems(Array.isArray(exp) ? exp : []);
+      setExpiredItems(Array.isArray(expd) ? expd : []);
     } catch (e) {
       console.error('Failed to load inventory:', e);
       setInventory([]);
       setExpiringItems([]);
+      setExpiredItems([]);
     } finally {
       setLoading(false);
     }
@@ -87,6 +95,11 @@ export function InventoryScreen() {
     await loadData();
     setRefreshing(false);
   }, [loadData]);
+
+  const showSnack = (msg: string) => {
+    setSnackMsg(msg);
+    setSnackVisible(true);
+  };
 
   // ── Manual Add ────────────────────────────────────────────
 
@@ -121,15 +134,47 @@ export function InventoryScreen() {
     setNewExpiry('');
   };
 
-  // ── Delete ────────────────────────────────────────────────
+  // ── Mark as Expired ──────────────────────────────────────────
 
-  const handleDeleteItem = async (item: InventoryItem) => {
+  const handleExpireItem = async (item: InventoryItem) => {
     const confirmed = Platform.OS === 'web'
-      ? window.confirm(`Remove "${item.canonical_name}" from inventory?`)
+      ? window.confirm(`Mark "${item.canonical_name}" as expired?`)
       : await new Promise<boolean>((resolve) => {
-          Alert.alert('Delete Item', `Remove "${item.canonical_name}" from inventory?`, [
+          Alert.alert('Mark Expired', `Move "${item.canonical_name}" to expired items?`, [
             { text: 'Cancel', style: 'cancel', onPress: () => resolve(false) },
-            { text: 'Delete', style: 'destructive', onPress: () => resolve(true) },
+            { text: 'Expire', style: 'destructive', onPress: () => resolve(true) },
+          ]);
+        });
+
+    if (!confirmed) return;
+
+    try {
+      await api.expireInventoryItem(item.item_id);
+      await loadData();
+      showSnack(`"${item.canonical_name}" moved to expired`);
+    } catch {
+      Alert.alert('Error', 'Could not mark item as expired.');
+    }
+  };
+
+  // ── Expired → Shopping ────────────────────────────────────
+
+  const handleAddToShopping = async (item: ExpiringItem) => {
+    try {
+      await api.addShoppingItem(item.canonical_name, item.qty, item.unit);
+      showSnack(`"${item.canonical_name}" added to shopping list`);
+    } catch {
+      Alert.alert('Error', 'Could not add to shopping list.');
+    }
+  };
+
+  const handleDeleteExpired = async (item: ExpiringItem) => {
+    const confirmed = Platform.OS === 'web'
+      ? window.confirm(`Remove expired "${item.canonical_name}" from inventory?`)
+      : await new Promise<boolean>((resolve) => {
+          Alert.alert('Remove Expired', `Remove "${item.canonical_name}" from inventory?`, [
+            { text: 'Cancel', style: 'cancel', onPress: () => resolve(false) },
+            { text: 'Remove', style: 'destructive', onPress: () => resolve(true) },
           ]);
         });
 
@@ -274,7 +319,7 @@ export function InventoryScreen() {
       setScanResult(result);
       if (result.items && result.items.length > 0) {
         const allSelected: Record<number, boolean> = {};
-        result.items.forEach((_, i) => { allSelected[i] = true; });
+        result.items.forEach((_: any, i: number) => { allSelected[i] = true; });
         setSelectedItems(allSelected);
       }
     } catch (e: any) {
@@ -285,62 +330,145 @@ export function InventoryScreen() {
     }
   };
 
-  // ── Filtered list ─────────────────────────────────────────
+  // ── Filtered lists ──────────────────────────────────────────
 
-  const filtered = inventory.filter((item) =>
-    item.canonical_name.toLowerCase().includes(search.toLowerCase()),
+  const searchLower = search.toLowerCase();
+
+  const expiringIds = new Set(expiringItems.map((e) => e.item_id));
+
+  const filteredInventory = inventory
+    .filter((item) => item.canonical_name.toLowerCase().includes(searchLower))
+    .filter((item) => !expiringSoonFilter || expiringIds.has(item.item_id));
+
+  const filteredExpired = expiredItems.filter((item) =>
+    item.canonical_name.toLowerCase().includes(searchLower),
   );
 
   // ── Render ────────────────────────────────────────────────
 
+  const renderExpiredCard = ({ item }: { item: ExpiringItem }) => (
+    <Card style={styles.expiredCard} mode="elevated">
+      <Card.Content style={styles.expiredContent}>
+        <View style={styles.expiredInfo}>
+          <Text variant="titleSmall" style={styles.expiredName}>{item.canonical_name}</Text>
+          <Text variant="bodySmall" style={styles.expiredQty}>{item.qty} {item.unit}</Text>
+          <Text variant="labelSmall" style={styles.expiredDays}>
+            Expired {Math.abs(item.days_until_expiry)} day{Math.abs(item.days_until_expiry) !== 1 ? 's' : ''} ago
+          </Text>
+        </View>
+        <View style={styles.expiredActions}>
+          <IconButton
+            icon="cart-plus"
+            iconColor="#4CAF50"
+            size={22}
+            onPress={() => handleAddToShopping(item)}
+            style={styles.actionBtn}
+          />
+          <IconButton
+            icon="delete-outline"
+            iconColor="#F44336"
+            size={22}
+            onPress={() => handleDeleteExpired(item)}
+            style={styles.actionBtn}
+          />
+        </View>
+      </Card.Content>
+    </Card>
+  );
+
   return (
     <View style={styles.container}>
+      <View style={styles.header}>
+        <Text variant="headlineSmall" style={styles.headerTitle}>
+          Inventory
+        </Text>
+        <Text variant="bodyMedium" style={styles.headerSub}>
+          {loading
+            ? 'Loading your kitchen…'
+            : `${inventory.length} in stock · ${expiringItems.length} expiring soon · ${expiredItems.length} expired`}
+        </Text>
+        <Text variant="labelSmall" style={styles.headerHint}>
+          Search and switch tabs below · tap + to add manually or scan a bill
+        </Text>
+      </View>
+
       <Searchbar
-        placeholder="Search inventory..."
+        placeholder="Search items…"
         value={search}
         onChangeText={setSearch}
         style={styles.searchbar}
+        inputStyle={styles.searchInput}
+        iconColor="#4CAF50"
+        elevation={2}
       />
 
       <SegmentedButtons
         value={tab}
         onValueChange={(v) => setTab(v as TabValue)}
         buttons={[
-          { value: 'all', label: `All (${inventory.length})` },
-          { value: 'expiring', label: `Expiring (${expiringItems.length})` },
+          { value: 'all', label: `Items (${inventory.length})` },
+          { value: 'expired', label: `Expired (${expiredItems.length})` },
         ]}
         style={styles.tabs}
       />
 
-      {tab === 'all' ? (
+      {tab === 'all' && (
+        <>
+          <View style={styles.filterRow}>
+            <Button
+              mode={expiringSoonFilter ? 'contained' : 'outlined'}
+              icon="clock-alert-outline"
+              compact
+              onPress={() => setExpiringSoonFilter(!expiringSoonFilter)}
+              buttonColor={expiringSoonFilter ? '#FF9800' : undefined}
+              textColor={expiringSoonFilter ? '#fff' : '#FF9800'}
+              style={styles.filterChip}
+              disabled={expiringItems.length === 0}
+            >
+              Expiring Soon ({expiringItems.length})
+            </Button>
+          </View>
+          <FlatList
+            data={filteredInventory}
+            renderItem={({ item }) => (
+              <InventoryItemCard item={item} onExpire={handleExpireItem} />
+            )}
+            keyExtractor={(item) => item.item_id}
+            contentContainerStyle={styles.list}
+            refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
+            ListEmptyComponent={
+              <Text variant="bodyMedium" style={styles.emptyText}>
+                {loading
+                  ? 'Loading...'
+                  : expiringSoonFilter
+                    ? 'No items expiring soon — you\'re in good shape!'
+                    : 'No items yet. Tap + to add manually or scan a bill.'}
+              </Text>
+            }
+          />
+        </>
+      )}
+
+      {tab === 'expired' && (
         <FlatList
-          data={filtered}
-          renderItem={({ item }) => (
-            <InventoryItemCard item={item} onDelete={handleDeleteItem} />
-          )}
+          data={filteredExpired}
+          renderItem={renderExpiredCard}
           keyExtractor={(item) => item.item_id}
           contentContainerStyle={styles.list}
-          refreshControl={
-            <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
+          refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
+          ListHeaderComponent={
+            expiredItems.length > 0 ? (
+              <Surface style={styles.expiredBanner} elevation={0}>
+                <IconButton icon="alert-circle" iconColor="#F44336" size={20} style={{ margin: 0 }} />
+                <Text variant="bodySmall" style={styles.expiredBannerText}>
+                  Tap the cart icon to re-order an expired item
+                </Text>
+              </Surface>
+            ) : null
           }
           ListEmptyComponent={
             <Text variant="bodyMedium" style={styles.emptyText}>
-              {loading ? 'Loading...' : 'No items yet. Tap + to add manually or scan a bill.'}
-            </Text>
-          }
-        />
-      ) : (
-        <FlatList
-          data={expiringItems}
-          renderItem={({ item }) => <ExpiringItemCard item={item} />}
-          keyExtractor={(item) => item.item_id}
-          contentContainerStyle={styles.list}
-          refreshControl={
-            <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
-          }
-          ListEmptyComponent={
-            <Text variant="bodyMedium" style={styles.emptyText}>
-              No expiring items
+              No expired items — great job managing your kitchen!
             </Text>
           }
         />
@@ -448,7 +576,6 @@ export function InventoryScreen() {
           <Divider style={styles.modalDivider} />
 
           <ScrollView style={styles.scanModalScroll} showsVerticalScrollIndicator={false}>
-            {/* Step 1: Pick image & scan */}
             {!scanResult && (
               <>
                 <Text variant="bodyMedium" style={styles.scanDesc}>
@@ -516,7 +643,6 @@ export function InventoryScreen() {
               </>
             )}
 
-            {/* Step 2: Review & confirm items */}
             {scanResult && scanResult.items && scanResult.items.length > 0 && (
               <>
                 <Text variant="bodyMedium" style={styles.scanDesc}>
@@ -524,11 +650,7 @@ export function InventoryScreen() {
                 </Text>
 
                 <View style={styles.selectAllRow}>
-                  <Button
-                    mode="text"
-                    compact
-                    onPress={selectAll}
-                  >
+                  <Button mode="text" compact onPress={selectAll}>
                     {scanResult.items.every((_, i) => selectedItems[i] !== false)
                       ? 'Deselect All'
                       : 'Select All'}
@@ -594,6 +716,15 @@ export function InventoryScreen() {
           </ScrollView>
         </Modal>
       </Portal>
+
+      <Snackbar
+        visible={snackVisible}
+        onDismiss={() => setSnackVisible(false)}
+        duration={2500}
+        action={{ label: 'OK', onPress: () => setSnackVisible(false) }}
+      >
+        {snackMsg}
+      </Snackbar>
     </View>
   );
 }
@@ -603,13 +734,51 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: '#F8F9FA',
   },
+  header: {
+    backgroundColor: '#2E7D32',
+    paddingHorizontal: 20,
+    paddingTop: Platform.OS === 'web' ? 16 : 12,
+    paddingBottom: 22,
+    borderBottomLeftRadius: 28,
+    borderBottomRightRadius: 28,
+  },
+  headerTitle: {
+    color: '#fff',
+    fontWeight: '800',
+    letterSpacing: 0.3,
+  },
+  headerSub: {
+    color: 'rgba(255,255,255,0.92)',
+    marginTop: 6,
+    lineHeight: 22,
+  },
+  headerHint: {
+    color: 'rgba(255,255,255,0.75)',
+    marginTop: 10,
+  },
   searchbar: {
-    margin: 16,
+    marginHorizontal: 16,
+    marginTop: -10,
     marginBottom: 8,
+    borderRadius: 14,
+    elevation: 2,
+    backgroundColor: '#fff',
+  },
+  searchInput: {
+    minHeight: 20,
   },
   tabs: {
     marginHorizontal: 16,
     marginBottom: 8,
+  },
+  filterRow: {
+    paddingHorizontal: 16,
+    marginBottom: 4,
+  },
+  filterChip: {
+    alignSelf: 'flex-start',
+    borderColor: '#FF9800',
+    borderRadius: 20,
   },
   list: {
     padding: 16,
@@ -623,6 +792,52 @@ const styles = StyleSheet.create({
   },
   fab: {
     backgroundColor: '#4CAF50',
+  },
+
+  // Expired tab
+  expiredBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#FFF3E0',
+    borderRadius: 12,
+    padding: 8,
+    paddingRight: 16,
+    marginBottom: 12,
+  },
+  expiredBannerText: {
+    flex: 1,
+    color: '#E65100',
+  },
+  expiredCard: {
+    marginBottom: 8,
+    borderLeftWidth: 4,
+    borderLeftColor: '#F44336',
+  },
+  expiredContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  expiredInfo: {
+    flex: 1,
+    gap: 2,
+  },
+  expiredName: {
+    fontWeight: '600',
+  },
+  expiredQty: {
+    color: '#666',
+  },
+  expiredDays: {
+    color: '#F44336',
+    fontWeight: '600',
+    marginTop: 2,
+  },
+  expiredActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  actionBtn: {
+    margin: 0,
   },
 
   // Shared modal

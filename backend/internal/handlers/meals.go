@@ -14,6 +14,7 @@ import (
 	"kitchenai-backend/pkg/config"
 
 	"github.com/google/generative-ai-go/genai"
+	"github.com/lib/pq"
 	"google.golang.org/api/option"
 )
 
@@ -41,14 +42,32 @@ type SmartMealsResponse struct {
 	GeneratedAt   string         `json:"generated_at"`
 }
 
+var categoryMeta = map[string]struct {
+	Title string
+	Desc  string
+	Rule  string
+}{
+	"rescue_meal":  {Title: "Rescue Meal", Desc: "Use expiring items before they go to waste", Rule: "MUST use the expiring/expired items listed above. Use ONLY inventory items. This is urgent. \"items_to_order\" MUST be empty []."},
+	"meal_of_day":  {Title: "Meal of the Day", Desc: "Best balanced meal using only what you have", Rule: "Use ONLY items already in inventory. Pick the best balanced option. \"items_to_order\" MUST be empty []."},
+	"most_healthy": {Title: "Most Healthy", Desc: "Nutrient-rich meals for a balanced diet", Rule: "GENERAL suggestions. You may suggest dishes that require items NOT in inventory. List any items NOT in inventory in \"items_to_order\"."},
+	"most_tasty":   {Title: "Most Tasty", Desc: "Crowd-pleasing delicious meals", Rule: "GENERAL suggestions. You may suggest dishes that require items NOT in inventory. List any items NOT in inventory in \"items_to_order\"."},
+	"long_lasting":  {Title: "Cook Now, Eat Later", Desc: "Meals that store well for days", Rule: "GENERAL suggestions for batch cooking. You may suggest dishes that require items NOT in inventory. List any items NOT in inventory in \"items_to_order\"."},
+}
+
 func GetSmartMeals(db *sql.DB, cfg *config.Config) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		userID := getUserID(r)
 		userPrompt := r.URL.Query().Get("prompt")
+		category := r.URL.Query().Get("category")
+		log.Printf("SmartMeals request: userID=%s, category=%q, userPrompt=%q", userID, category, userPrompt)
 
 		inventory := fetchUserInventory(db, userID)
 		cookProfile := fetchUserCookProfile(db, userID)
 		userPrefs := fetchUserPreferences(db, userID)
+
+		if userPrefs != nil {
+			inventory = filterInventoryByDiet(inventory, userPrefs.DietaryTags)
+		}
 
 		if len(inventory) == 0 {
 			w.Header().Set("Content-Type", "application/json")
@@ -60,12 +79,23 @@ func GetSmartMeals(db *sql.DB, cfg *config.Config) http.HandlerFunc {
 			return
 		}
 
-		prompt := buildMealPrompt(inventory, cookProfile, userPrefs, userPrompt)
+		prompt := buildMealPrompt(inventory, cookProfile, userPrefs, userPrompt, category)
 
 		meals, err := callGeminiForMeals(cfg, prompt)
 		if err != nil {
 			log.Printf("Gemini meal suggestion error: %v", err)
 			meals = fallbackMeals(inventory)
+			if category != "" {
+				filtered := []MealCategory{}
+				for _, m := range meals {
+					if m.ID == category {
+						filtered = append(filtered, m)
+					}
+				}
+				if len(filtered) > 0 {
+					meals = filtered
+				}
+			}
 		}
 
 		w.Header().Set("Content-Type", "application/json")
@@ -120,7 +150,7 @@ func fetchUserCookProfile(db *sql.DB, userID string) *services.CookProfileData {
 		FROM cook_profile
 		WHERE user_id = $1 OR user_id IS NULL
 		LIMIT 1
-	`, userID).Scan(&cp.DishesKnown, &cp.PreferredLang)
+	`, userID).Scan(pq.Array(&cp.DishesKnown), &cp.PreferredLang)
 	if err != nil {
 		return nil
 	}
@@ -137,11 +167,13 @@ func fetchUserPreferences(db *sql.DB, userID string) *services.UserPrefsData {
 			COALESCE(spice_level, 'medium'), COALESCE(cooking_skill, 'intermediate')
 		FROM user_prefs
 		WHERE user_id = $1
-	`, userID).Scan(&up.Dislikes, &up.DietaryTags, &up.FavCuisines,
-		&up.Allergies, &householdSize, &spiceLevel, &cookingSkill)
+	`, userID).Scan(pq.Array(&up.Dislikes), pq.Array(&up.DietaryTags), pq.Array(&up.FavCuisines),
+		pq.Array(&up.Allergies), &householdSize, &spiceLevel, &cookingSkill)
 	if err != nil {
+		log.Printf("fetchUserPreferences error for %s: %v", userID, err)
 		return nil
 	}
+	log.Printf("User prefs loaded: dietary=%v, allergies=%v, dislikes=%v, cuisines=%v", up.DietaryTags, up.Allergies, up.Dislikes, up.FavCuisines)
 	if householdSize.Valid {
 		up.HouseholdSize = int(householdSize.Int64)
 	}
@@ -165,10 +197,19 @@ func fetchUserPreferences(db *sql.DB, userID string) *services.UserPrefsData {
 	return &up
 }
 
-func buildMealPrompt(inventory []inventoryRow, cook *services.CookProfileData, prefs *services.UserPrefsData, userPrompt string) string {
+func buildMealPrompt(inventory []inventoryRow, cook *services.CookProfileData, prefs *services.UserPrefsData, userPrompt string, category string) string {
 	var sb strings.Builder
 
-	sb.WriteString("You are a smart Indian kitchen meal planner. Based on the household's current inventory, suggest meals in 5 categories.\n\n")
+	if category != "" {
+		meta, ok := categoryMeta[category]
+		if !ok {
+			meta = categoryMeta["meal_of_day"]
+			category = "meal_of_day"
+		}
+		sb.WriteString(fmt.Sprintf("You are a smart kitchen meal planner. Suggest 3 meals for the \"%s\" category.\nCategory description: %s\n\n", meta.Title, meta.Desc))
+	} else {
+		sb.WriteString("You are a smart kitchen meal planner. Based on the household's current inventory and preferences, suggest meals in 5 categories.\n\n")
+	}
 
 	sb.WriteString("## Current Inventory:\n")
 	now := time.Now()
@@ -199,17 +240,37 @@ func buildMealPrompt(inventory []inventoryRow, cook *services.CookProfileData, p
 	}
 
 	if prefs != nil {
+		var hardConstraints []string
+
+		if len(prefs.DietaryTags) > 0 {
+			for _, tag := range prefs.DietaryTags {
+				lower := strings.ToLower(tag)
+				if strings.Contains(lower, "vegetarian") || strings.Contains(lower, "vegan") {
+					hardConstraints = append(hardConstraints, fmt.Sprintf("User is %s. NEVER suggest meat, poultry, fish, seafood, or eggs. Not even as optional ingredients.", tag))
+				} else if strings.Contains(lower, "jain") {
+					hardConstraints = append(hardConstraints, fmt.Sprintf("User follows %s diet. No meat, eggs, onion, garlic, or root vegetables.", tag))
+				} else {
+					hardConstraints = append(hardConstraints, fmt.Sprintf("User follows %s diet.", tag))
+				}
+			}
+		}
+		if len(prefs.Allergies) > 0 {
+			hardConstraints = append(hardConstraints, fmt.Sprintf("ALLERGIES — user is allergic to: %s. These ingredients MUST NOT appear in any meal.", strings.Join(prefs.Allergies, ", ")))
+		}
+
+		if len(hardConstraints) > 0 {
+			sb.WriteString("\n## HARD DIETARY CONSTRAINTS (MUST FOLLOW — ZERO EXCEPTIONS):\n")
+			for _, c := range hardConstraints {
+				sb.WriteString(fmt.Sprintf("- %s\n", c))
+			}
+			sb.WriteString("Violating any of the above constraints is strictly forbidden.\n")
+		}
+
 		if prefs.HouseholdSize > 0 {
 			sb.WriteString(fmt.Sprintf("\n## Household Size: %d people\n", prefs.HouseholdSize))
 		}
-		if len(prefs.Allergies) > 0 {
-			sb.WriteString(fmt.Sprintf("## ALLERGIES (MUST AVOID): %s\n", strings.Join(prefs.Allergies, ", ")))
-		}
 		if len(prefs.Dislikes) > 0 {
-			sb.WriteString(fmt.Sprintf("## User Dislikes: %s\n", strings.Join(prefs.Dislikes, ", ")))
-		}
-		if len(prefs.DietaryTags) > 0 {
-			sb.WriteString(fmt.Sprintf("## Dietary: %s\n", strings.Join(prefs.DietaryTags, ", ")))
+			sb.WriteString(fmt.Sprintf("## User Dislikes (avoid if possible): %s\n", strings.Join(prefs.Dislikes, ", ")))
 		}
 		if len(prefs.FavCuisines) > 0 {
 			sb.WriteString(fmt.Sprintf("## Favorite Cuisines: %s\n", strings.Join(prefs.FavCuisines, ", ")))
@@ -228,27 +289,37 @@ func buildMealPrompt(inventory []inventoryRow, cook *services.CookProfileData, p
 		}
 	}
 
-	if userPrompt != "" {
-		sb.WriteString(fmt.Sprintf("\n## User's Request for This Session:\n%s\n", userPrompt))
-	}
-
-	sb.WriteString(`
+	if category != "" {
+		meta := categoryMeta[category]
+		sb.WriteString(fmt.Sprintf("\n## RULE FOR THIS CATEGORY:\n%s\n", meta.Rule))
+		sb.WriteString("\n## Instructions:\nSuggest 3 different meals. Make them varied and creative.\n")
+	} else {
+		sb.WriteString(`
 ## IMPORTANT RULES FOR EACH CATEGORY:
 
-1. **rescue_meal**: MUST use the expiring/expired items listed above. Use ONLY inventory items. This is urgent.
-2. **meal_of_day**: Use ONLY items already in inventory. Pick the best balanced option.
-3. **most_healthy**, **most_tasty**, **long_lasting**: These are GENERAL suggestions. You may suggest dishes that require items NOT in inventory. For any ingredient NOT in the inventory above, include it in the "items_to_order" array so the user knows what to buy.
+1. **rescue_meal**: MUST use the expiring/expired items. Use ONLY inventory items. "items_to_order" MUST be empty [].
+2. **meal_of_day**: Use ONLY items in inventory. "items_to_order" MUST be empty [].
+3. **most_healthy**, **most_tasty**, **long_lasting**: GENERAL suggestions. May need items NOT in inventory. List those in "items_to_order".
 
 ## Instructions:
-Suggest 2 meals per category. Focus on Indian household context.
+Suggest 2 meals per category.
+`)
+	}
 
-Return ONLY a JSON array with exactly 5 objects:
+	if userPrompt != "" {
+		sb.WriteString(fmt.Sprintf("\n## MANDATORY CUISINE/PREFERENCE OVERRIDE:\nThe user has requested: \"%s\"\nYou MUST follow this. Every meal must align with this request. If they say \"italian\", ALL meals must be Italian dishes. Do NOT suggest dishes from other cuisines.\n", userPrompt))
+	} else {
+		sb.WriteString("\nDefault to Indian household context when no specific cuisine is requested.\n")
+	}
 
-[
+	if category != "" {
+		meta := categoryMeta[category]
+		sb.WriteString(fmt.Sprintf("\nReturn ONLY a JSON array with exactly 1 object:\n\n"))
+		sb.WriteString(fmt.Sprintf(`[
   {
-    "id": "rescue_meal",
-    "title": "Rescue Meal",
-    "description": "Use expiring items before they go to waste",
+    "id": "%s",
+    "title": "%s",
+    "description": "%s",
     "meals": [
       {
         "name": "...",
@@ -257,41 +328,33 @@ Return ONLY a JSON array with exactly 5 objects:
         "items_to_order": [],
         "cooking_time_mins": 30,
         "difficulty": "easy",
-        "why_this_meal": "Uses expiring tomatoes and onions",
+        "why_this_meal": "reason",
         "nutrition_notes": "Brief nutrition info"
       }
     ]
-  },
-  {
-    "id": "meal_of_day",
-    "title": "Meal of the Day",
-    "description": "Best balanced meal using only what you have",
-    "meals": [...]
-  },
-  {
-    "id": "most_healthy",
-    "title": "Most Healthy",
-    "description": "Nutrient-rich meals (may need some items ordered)",
-    "meals": [...]
-  },
-  {
-    "id": "most_tasty",
-    "title": "Most Tasty",
-    "description": "Crowd-pleasers (may need some items ordered)",
-    "meals": [...]
-  },
-  {
-    "id": "long_lasting",
-    "title": "Cook Now, Eat Later",
-    "description": "Meals that store well (may need some items ordered)",
-    "meals": [...]
   }
-]
-
-For rescue_meal and meal_of_day: "items_to_order" MUST be empty [].
-For most_healthy, most_tasty, long_lasting: list any items NOT in inventory in "items_to_order".
-
-Return ONLY the JSON array, no markdown, no explanation.`)
+]`, category, meta.Title, meta.Desc))
+	} else {
+		sb.WriteString("\nReturn ONLY a JSON array with exactly 5 objects:\n\n")
+		sb.WriteString(`[
+  {
+    "id": "rescue_meal", "title": "Rescue Meal", "description": "...", "meals": [...]
+  },
+  {
+    "id": "meal_of_day", "title": "Meal of the Day", "description": "...", "meals": [...]
+  },
+  {
+    "id": "most_healthy", "title": "Most Healthy", "description": "...", "meals": [...]
+  },
+  {
+    "id": "most_tasty", "title": "Most Tasty", "description": "...", "meals": [...]
+  },
+  {
+    "id": "long_lasting", "title": "Cook Now, Eat Later", "description": "...", "meals": [...]
+  }
+]`)
+	}
+	sb.WriteString("\n\nReturn ONLY the JSON array, no markdown, no explanation.")
 
 	return sb.String()
 }
@@ -311,8 +374,8 @@ func callGeminiForMeals(cfg *config.Config, prompt string) ([]MealCategory, erro
 	defer client.Close()
 
 	model := client.GenerativeModel(cfg.GeminiModel)
-	model.SetTemperature(0.7)
-	model.SetTopP(0.9)
+	model.SetTemperature(0.9)
+	model.SetTopP(0.95)
 
 	resp, err := model.GenerateContent(ctx, genai.Text(prompt))
 	if err != nil {
@@ -331,6 +394,11 @@ func callGeminiForMeals(cfg *config.Config, prompt string) ([]MealCategory, erro
 		}
 	}
 
+	if len(text) > 300 {
+		log.Printf("Gemini raw response (first 300 chars): %s", text[:300])
+	} else {
+		log.Printf("Gemini raw response: %s", text)
+	}
 	return parseMealCategories(text)
 }
 
@@ -352,6 +420,44 @@ func parseMealCategories(raw string) ([]MealCategory, error) {
 		return nil, fmt.Errorf("JSON parse error: %w (raw: %.200s)", err, cleaned)
 	}
 	return categories, nil
+}
+
+var nonVegKeywords = []string{
+	"chicken", "mutton", "lamb", "fish", "prawn", "shrimp", "crab", "lobster",
+	"pork", "beef", "bacon", "ham", "sausage", "salami", "turkey", "duck",
+	"meat", "keema", "egg", "eggs", "seafood", "tuna", "salmon", "sardine",
+	"anchovy", "squid", "octopus", "venison", "goat",
+}
+
+func filterInventoryByDiet(inventory []inventoryRow, dietaryTags []string) []inventoryRow {
+	isVeg := false
+	for _, tag := range dietaryTags {
+		lower := strings.ToLower(tag)
+		if strings.Contains(lower, "vegetarian") || strings.Contains(lower, "vegan") || strings.Contains(lower, "jain") {
+			isVeg = true
+			break
+		}
+	}
+	if !isVeg {
+		return inventory
+	}
+
+	filtered := make([]inventoryRow, 0, len(inventory))
+	for _, item := range inventory {
+		nameLower := strings.ToLower(item.Name)
+		skip := false
+		for _, kw := range nonVegKeywords {
+			if strings.Contains(nameLower, kw) {
+				log.Printf("Filtered out non-veg item %q for vegetarian user", item.Name)
+				skip = true
+				break
+			}
+		}
+		if !skip {
+			filtered = append(filtered, item)
+		}
+	}
+	return filtered
 }
 
 func fallbackMeals(inventory []inventoryRow) []MealCategory {

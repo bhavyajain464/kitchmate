@@ -7,6 +7,7 @@ import (
 
 	"kitchenai-backend/internal/db"
 	"kitchenai-backend/internal/handlers"
+	kafkalib "kitchenai-backend/internal/kafka"
 	"kitchenai-backend/internal/middleware"
 	"kitchenai-backend/internal/services"
 	"kitchenai-backend/pkg/config"
@@ -19,7 +20,7 @@ func corsMiddleware(next http.Handler) http.Handler {
 		log.Printf("%s %s (Origin: %s)", r.Method, r.URL.Path, r.Header.Get("Origin"))
 
 		w.Header().Set("Access-Control-Allow-Origin", "*")
-		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
+		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, DELETE, OPTIONS")
 		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
 		w.Header().Set("Access-Control-Max-Age", "300")
 
@@ -38,7 +39,13 @@ func main() {
 		log.Fatalf("Failed to load config: %v", err)
 	}
 
-	database, err := db.InitDB(cfg.DatabaseURL)
+	database, err := db.InitDB(
+		cfg.DatabaseURL,
+		cfg.DatabaseMaxOpenConns,
+		cfg.DatabaseMaxIdleConns,
+		time.Duration(cfg.DatabaseConnMaxLifetimeMin)*time.Minute,
+		time.Duration(cfg.DatabaseConnMaxIdleSec)*time.Second,
+	)
 	if err != nil {
 		log.Fatalf("Failed to connect to database: %v", err)
 	}
@@ -49,6 +56,12 @@ func main() {
 	authService := services.NewAuthService(sqlDB, cfg)
 	whatsappService := services.NewWhatsAppService(cfg, sqlDB)
 	authHandler := handlers.NewAuthHandler(authService)
+
+	kafkaProducer := kafkalib.NewProducer(cfg)
+	if kafkaProducer != nil {
+		defer kafkaProducer.Close()
+	}
+	kafkalib.StartShelfLifeConsumer(sqlDB, cfg)
 
 	router := mux.NewRouter()
 	router.Use(corsMiddleware)
@@ -63,15 +76,21 @@ func main() {
 
 	// Inventory (specific paths before {id} wildcard)
 	api.Handle("/inventory", middleware.RequireAuth(http.HandlerFunc(handlers.GetInventory(sqlDB)))).Methods("GET", "OPTIONS")
-	api.Handle("/inventory", middleware.RequireAuth(http.HandlerFunc(handlers.CreateInventoryItem(sqlDB)))).Methods("POST")
+	api.Handle("/inventory", middleware.RequireAuth(http.HandlerFunc(handlers.CreateInventoryItem(sqlDB, kafkaProducer)))).Methods("POST")
 	api.Handle("/inventory/expiring", middleware.RequireAuth(http.HandlerFunc(handlers.GetExpiringItems(sqlDB)))).Methods("GET", "OPTIONS")
-	api.Handle("/inventory/{id}", middleware.RequireAuth(http.HandlerFunc(handlers.GetInventoryItem(sqlDB)))).Methods("GET", "OPTIONS")
-	api.Handle("/inventory/{id}", middleware.RequireAuth(http.HandlerFunc(handlers.UpdateInventoryItem(sqlDB)))).Methods("PUT", "OPTIONS")
-	api.Handle("/inventory/{id}", middleware.RequireAuth(http.HandlerFunc(handlers.DeleteInventoryItem(sqlDB)))).Methods("DELETE", "OPTIONS")
+	api.Handle("/inventory/expired", middleware.RequireAuth(http.HandlerFunc(handlers.GetExpiredItems(sqlDB)))).Methods("GET", "OPTIONS")
+	api.Handle("/inventory/{id:[a-fA-F0-9-]+}", middleware.RequireAuth(http.HandlerFunc(handlers.GetInventoryItem(sqlDB)))).Methods("GET", "OPTIONS")
+	api.Handle("/inventory/{id:[a-fA-F0-9-]+}", middleware.RequireAuth(http.HandlerFunc(handlers.UpdateInventoryItem(sqlDB)))).Methods("PUT", "OPTIONS")
+	api.Handle("/inventory/{id:[a-fA-F0-9-]+}/expire", middleware.RequireAuth(http.HandlerFunc(handlers.ExpireInventoryItem(sqlDB)))).Methods("PATCH", "OPTIONS")
+	api.Handle("/inventory/{id:[a-fA-F0-9-]+}", middleware.RequireAuth(http.HandlerFunc(handlers.DeleteInventoryItem(sqlDB)))).Methods("DELETE", "OPTIONS")
 
 	// User preferences
 	api.Handle("/user/preferences", middleware.RequireAuth(http.HandlerFunc(handlers.GetUserPreferences(sqlDB)))).Methods("GET", "OPTIONS")
 	api.Handle("/user/preferences", middleware.RequireAuth(http.HandlerFunc(handlers.UpdateUserPreferences(sqlDB)))).Methods("PUT", "OPTIONS")
+
+	// Onboarding
+	api.Handle("/onboarding/status", middleware.RequireAuth(http.HandlerFunc(handlers.GetOnboardingStatus(sqlDB)))).Methods("GET", "OPTIONS")
+	api.Handle("/onboarding/complete", middleware.RequireAuth(http.HandlerFunc(handlers.CompleteOnboarding(sqlDB, kafkaProducer)))).Methods("POST", "OPTIONS")
 
 	// Profile & Memory
 	api.Handle("/profile", middleware.RequireAuth(http.HandlerFunc(handlers.GetProfile(sqlDB)))).Methods("GET", "OPTIONS")
@@ -103,7 +122,15 @@ func main() {
 	api.Handle("/rescue-meal/simple", middleware.RequireAuth(http.HandlerFunc(handlers.GetSimpleRescueMeal(sqlDB)))).Methods("GET", "OPTIONS")
 	api.Handle("/rescue-meal/test", middleware.RequireAuth(http.HandlerFunc(handlers.TestRescueMeal(sqlDB)))).Methods("GET", "OPTIONS")
 
-	// Procurement
+	// Shopping List
+	api.Handle("/shopping", middleware.RequireAuth(http.HandlerFunc(handlers.GetShoppingItems(sqlDB)))).Methods("GET", "OPTIONS")
+	api.Handle("/shopping", middleware.RequireAuth(http.HandlerFunc(handlers.AddShoppingItem(sqlDB)))).Methods("POST", "OPTIONS")
+	api.Handle("/shopping/bulk", middleware.RequireAuth(http.HandlerFunc(handlers.AddBulkShoppingItems(sqlDB)))).Methods("POST", "OPTIONS")
+	api.Handle("/shopping/{id}/toggle", middleware.RequireAuth(http.HandlerFunc(handlers.ToggleShoppingItem(sqlDB)))).Methods("PATCH", "OPTIONS")
+	api.Handle("/shopping/{id}", middleware.RequireAuth(http.HandlerFunc(handlers.DeleteShoppingItem(sqlDB)))).Methods("DELETE", "OPTIONS")
+	api.Handle("/shopping/clear-bought", middleware.RequireAuth(http.HandlerFunc(handlers.ClearBoughtItems(sqlDB)))).Methods("DELETE", "OPTIONS")
+
+	// Procurement (legacy)
 	api.Handle("/procurement/shopping-list", middleware.RequireAuth(http.HandlerFunc(handlers.GetShoppingListHandler(sqlDB)))).Methods("GET", "POST", "OPTIONS")
 	api.Handle("/procurement/low-stock", middleware.RequireAuth(http.HandlerFunc(handlers.GetLowStockItemsHandler(sqlDB)))).Methods("GET", "OPTIONS")
 	api.Handle("/procurement/pre-market-ping", middleware.RequireAuth(http.HandlerFunc(handlers.SendPreMarketPingHandler(sqlDB, whatsappService)))).Methods("POST", "OPTIONS")
