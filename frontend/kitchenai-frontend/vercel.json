@@ -2,7 +2,7 @@
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "framework": null,
   "installCommand": "npm install",
-  "buildCommand": "npm run build:web",
+  "buildCommand": "EXPO_PUBLIC_BUILD_ID=$VERCEL_GIT_COMMIT_SHA npm run build:web",
   "outputDirectory": "dist",
   "rewrites": [{ "source": "/(.*)", "destination": "/index.html" }]
 }

@@ -161,6 +161,21 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const restoreSession = async () => {
     try {
+      // If the bundle changed since the user's last visit, wipe the stored
+      // session once so a stale auth token from an older deploy can't keep
+      // them stuck on a broken cached state. The marker is set per-build via
+      // EXPO_PUBLIC_BUILD_ID (set on Vercel from VERCEL_GIT_COMMIT_SHA).
+      const currentBuild = process.env.EXPO_PUBLIC_BUILD_ID || '';
+      if (currentBuild) {
+        const lastBuild = await AsyncStorage.getItem('appBuildId');
+        if (lastBuild && lastBuild !== currentBuild) {
+          await AsyncStorage.multiRemove(['authToken', 'authUser']);
+        }
+        if (lastBuild !== currentBuild) {
+          await AsyncStorage.setItem('appBuildId', currentBuild);
+        }
+      }
+
       const storedToken = await AsyncStorage.getItem('authToken');
       const storedUser = await AsyncStorage.getItem('authUser');
       if (storedToken && storedUser) {
