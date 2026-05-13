@@ -42,9 +42,10 @@ CREATE TABLE IF NOT EXISTS user_prefs (
 -- Cook Profile Table: Stores cook's skills and language preferences
 CREATE TABLE IF NOT EXISTS cook_profile (
     cook_id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    cook_name VARCHAR(255), -- Display name for WhatsApp greetings
     dishes_known TEXT[] DEFAULT '{}', -- Array of dishes the cook knows how to prepare
     preferred_lang VARCHAR(10) DEFAULT 'en', -- Language code: 'en', 'hi', 'kn'
-    phone_number VARCHAR(20), -- For WhatsApp communication
+    phone_number VARCHAR(20), -- For WhatsApp communication (E.164, e.g. +919876543210)
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
@@ -116,8 +117,8 @@ INSERT INTO user_prefs (dislikes, dietary_tags, fav_cuisines) VALUES
     ('{"brinjal", "bitter gourd"}', '{"vegetarian"}', '{"indian", "italian"}')
 ON CONFLICT DO NOTHING;
 
-INSERT INTO cook_profile (dishes_known, preferred_lang, phone_number) VALUES
-    ('{"paneer butter masala", "dal tadka", "roti", "rice"}', 'hi', '+919876543210')
+INSERT INTO cook_profile (cook_name, dishes_known, preferred_lang, phone_number) VALUES
+    ('Priya', ARRAY['paneer butter masala', 'dal tadka', 'roti', 'rice'], 'hi', '+919876543210')
 ON CONFLICT DO NOTHING;
 
 INSERT INTO inventory (canonical_name, qty, unit, estimated_expiry, is_manual) VALUES

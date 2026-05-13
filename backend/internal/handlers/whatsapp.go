@@ -9,6 +9,8 @@ import (
 	"kitchenai-backend/internal/models"
 	"kitchenai-backend/internal/services"
 	"kitchenai-backend/pkg/config"
+
+	"github.com/lib/pq"
 )
 
 // SendWhatsAppMessageRequest represents the request to send a WhatsApp message
@@ -18,19 +20,24 @@ type SendWhatsAppMessageRequest struct {
 	TestMode    bool   `json:"test_mode,omitempty"`
 }
 
-// SendWhatsAppMessageResponse represents the response from sending a WhatsApp message
+// SendWhatsAppMessageResponse is returned for all /whatsapp/* compose flows.
+// The client opens whatsapp_url in the user's browser / WhatsApp app; nothing is sent server-side.
 type SendWhatsAppMessageResponse struct {
-	Success   bool   `json:"success"`
-	MessageID string `json:"message_id,omitempty"`
-	Error     string `json:"error,omitempty"`
+	Success     bool   `json:"success"`
+	Message     string `json:"message,omitempty"`      // short status for the UI
+	Body        string `json:"body,omitempty"`         // pre-filled WhatsApp message text
+	WhatsappURL string `json:"whatsapp_url,omitempty"` // https://wa.me/…?text=…
+	Error       string `json:"error,omitempty"`
+	MessageID   string `json:"message_id,omitempty"` // legacy: always empty (Twilio removed)
 }
 
 // SendMealSuggestionRequest represents the request to send a meal suggestion
 type SendMealSuggestionRequest struct {
-	MealName    string              `json:"meal_name"`
-	Ingredients []models.Ingredient `json:"ingredients"`
-	CookingTime int                 `json:"cooking_time"`
-	TestMode    bool                `json:"test_mode,omitempty"`
+	MealName     string              `json:"meal_name"`
+	Ingredients  []models.Ingredient `json:"ingredients"`
+	CookingTime  int                 `json:"cooking_time"`
+	Instructions string              `json:"instructions,omitempty"`
+	TestMode     bool                `json:"test_mode,omitempty"`
 }
 
 // SendDailyMenuRequest represents the request to send a daily menu
@@ -45,7 +52,7 @@ type DailyMenuItem struct {
 	MealTime string `json:"meal_time,omitempty"` // breakfast, lunch, dinner
 }
 
-// SendWhatsAppMessage sends a WhatsApp message
+// SendWhatsAppMessage returns a wa.me compose link for an arbitrary recipient and message.
 func SendWhatsAppMessage(db *sql.DB, cfg *config.Config) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		var req SendWhatsAppMessageRequest
@@ -60,25 +67,20 @@ func SendWhatsAppMessage(db *sql.DB, cfg *config.Config) http.HandlerFunc {
 			return
 		}
 
-		// Initialize WhatsApp service
-		whatsappService := services.NewWhatsAppService(cfg, db)
+		whatsappService := services.NewWhatsAppService(db)
 
-		// Send message
-		messageID, err := whatsappService.SendMessage(req.PhoneNumber, req.Message)
-
-		response := SendWhatsAppMessageResponse{
-			Success: err == nil,
-		}
-
+		body, waURL, err := whatsappService.PrepareGenericWhatsApp(req.PhoneNumber, req.Message)
+		response := SendWhatsAppMessageResponse{Success: err == nil}
 		if err != nil {
 			response.Error = err.Error()
 			w.Header().Set("Content-Type", "application/json")
-			w.WriteHeader(http.StatusInternalServerError)
+			w.WriteHeader(http.StatusBadRequest)
 			json.NewEncoder(w).Encode(response)
 			return
 		}
-
-		response.MessageID = messageID
+		response.Message = "Open WhatsApp to send this message."
+		response.Body = body
+		response.WhatsappURL = waURL
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
 		json.NewEncoder(w).Encode(response)
@@ -105,25 +107,22 @@ func SendMealSuggestionToCook(db *sql.DB, cfg *config.Config) http.HandlerFunc {
 			return
 		}
 
-		// Initialize WhatsApp service
-		whatsappService := services.NewWhatsAppService(cfg, db)
+		whatsappService := services.NewWhatsAppService(db)
 
-		// Send meal suggestion
-		messageID, err := whatsappService.SendMealSuggestionToCook(req.MealName, req.Ingredients, req.CookingTime)
+		userID := getUserID(r)
+		body, waURL, err := whatsappService.PrepareMealSuggestionToCook(userID, req.MealName, req.Ingredients, req.CookingTime, req.Instructions)
 
-		response := SendWhatsAppMessageResponse{
-			Success: err == nil,
-		}
-
+		response := SendWhatsAppMessageResponse{Success: err == nil}
 		if err != nil {
 			response.Error = err.Error()
 			w.Header().Set("Content-Type", "application/json")
-			w.WriteHeader(http.StatusInternalServerError)
+			w.WriteHeader(http.StatusBadRequest)
 			json.NewEncoder(w).Encode(response)
 			return
 		}
-
-		response.MessageID = messageID
+		response.Message = "Open WhatsApp to send to your cook."
+		response.Body = body
+		response.WhatsappURL = waURL
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
 		json.NewEncoder(w).Encode(response)
@@ -153,25 +152,22 @@ func SendDailyMenuToCook(db *sql.DB, cfg *config.Config) http.HandlerFunc {
 			})
 		}
 
-		// Initialize WhatsApp service
-		whatsappService := services.NewWhatsAppService(cfg, db)
+		whatsappService := services.NewWhatsAppService(db)
 
-		// Send daily menu
-		messageID, err := whatsappService.SendDailyMenu(mealSuggestions)
+		userID := getUserID(r)
+		body, waURL, err := whatsappService.PrepareDailyMenuToCook(userID, mealSuggestions)
 
-		response := SendWhatsAppMessageResponse{
-			Success: err == nil,
-		}
-
+		response := SendWhatsAppMessageResponse{Success: err == nil}
 		if err != nil {
 			response.Error = err.Error()
 			w.Header().Set("Content-Type", "application/json")
-			w.WriteHeader(http.StatusInternalServerError)
+			w.WriteHeader(http.StatusBadRequest)
 			json.NewEncoder(w).Encode(response)
 			return
 		}
-
-		response.MessageID = messageID
+		response.Message = "Open WhatsApp to send the daily menu to your cook."
+		response.Body = body
+		response.WhatsappURL = waURL
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
 		json.NewEncoder(w).Encode(response)
@@ -181,23 +177,21 @@ func SendDailyMenuToCook(db *sql.DB, cfg *config.Config) http.HandlerFunc {
 // TestWhatsAppIntegration tests WhatsApp integration
 func TestWhatsAppIntegration(db *sql.DB, cfg *config.Config) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		whatsappService := services.NewWhatsAppService(cfg, db)
+		whatsappService := services.NewWhatsAppService(db)
 
-		messageID, err := whatsappService.TestSendMessage()
+		body, waURL, err := whatsappService.PrepareTestWhatsApp()
 
-		response := SendWhatsAppMessageResponse{
-			Success: err == nil,
-		}
-
+		response := SendWhatsAppMessageResponse{Success: err == nil}
 		if err != nil {
 			response.Error = err.Error()
 			w.Header().Set("Content-Type", "application/json")
-			w.WriteHeader(http.StatusInternalServerError)
+			w.WriteHeader(http.StatusBadRequest)
 			json.NewEncoder(w).Encode(response)
 			return
 		}
-
-		response.MessageID = messageID
+		response.Message = "Sample wa.me link (placeholder number)."
+		response.Body = body
+		response.WhatsappURL = waURL
 
 		// Also test translation service
 		translationService := services.NewTranslationService(cfg)
@@ -213,8 +207,7 @@ func TestWhatsAppIntegration(db *sql.DB, cfg *config.Config) http.HandlerFunc {
 				"kannada":  translatedKannada,
 			},
 			"config": map[string]interface{}{
-				"whatsapp_test_mode":  cfg.WhatsAppTestMode,
-				"twilio_configured":   cfg.TwilioAccountSID != "" && cfg.TwilioAuthToken != "",
+				"whatsapp_compose":    "wa.me links (user sends from their WhatsApp)",
 				"supported_languages": []string{"en", "hi", "kn"},
 			},
 		}
@@ -225,19 +218,20 @@ func TestWhatsAppIntegration(db *sql.DB, cfg *config.Config) http.HandlerFunc {
 	}
 }
 
-// GetCookWhatsAppInfo returns cook's WhatsApp information
+// GetCookWhatsAppInfo returns cook's WhatsApp information for the authenticated user
 func GetCookWhatsAppInfo(db *sql.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		cookID := "default-cook"
+		userID := getUserID(r)
 
 		var profile models.CookProfile
 		err := db.QueryRow(`
-			SELECT cook_id, dishes_known, preferred_lang, phone_number, created_at, updated_at
+			SELECT cook_id, COALESCE(cook_name, ''), dishes_known, preferred_lang, COALESCE(phone_number, ''), created_at, updated_at
 			FROM cook_profile
-			WHERE cook_id = $1
-		`, cookID).Scan(
+			WHERE user_id = $1
+		`, userID).Scan(
 			&profile.CookID,
-			&profile.DishesKnown,
+			&profile.CookName,
+			pq.Array(&profile.DishesKnown),
 			&profile.PreferredLang,
 			&profile.PhoneNumber,
 			&profile.CreatedAt,
@@ -245,9 +239,25 @@ func GetCookWhatsAppInfo(db *sql.DB) http.HandlerFunc {
 		)
 
 		if err == sql.ErrNoRows {
-			// Return default profile
+			err = db.QueryRow(`
+				SELECT cook_id, COALESCE(cook_name, ''), dishes_known, preferred_lang, COALESCE(phone_number, ''), created_at, updated_at
+				FROM cook_profile
+				WHERE user_id IS NULL
+				LIMIT 1
+			`).Scan(
+				&profile.CookID,
+				&profile.CookName,
+				pq.Array(&profile.DishesKnown),
+				&profile.PreferredLang,
+				&profile.PhoneNumber,
+				&profile.CreatedAt,
+				&profile.UpdatedAt,
+			)
+		}
+
+		if err == sql.ErrNoRows {
 			profile = models.CookProfile{
-				CookID:        cookID,
+				CookID:        "",
 				DishesKnown:   []string{},
 				PreferredLang: "en",
 				PhoneNumber:   "",
@@ -263,8 +273,16 @@ func GetCookWhatsAppInfo(db *sql.DB) http.HandlerFunc {
 			maskedPhone = strings.Repeat("*", len(maskedPhone)-4) + maskedPhone[len(maskedPhone)-4:]
 		}
 
+		maskedName := profile.CookName
+		if maskedName != "" && len([]rune(maskedName)) > 2 {
+			rs := []rune(maskedName)
+			maskedName = string(rs[0]) + strings.Repeat("*", len(rs)-2) + string(rs[len(rs)-1])
+		}
+
 		response := map[string]interface{}{
 			"cook_id":             profile.CookID,
+			"cook_name_set":       strings.TrimSpace(profile.CookName) != "",
+			"cook_name_masked":    maskedName,
 			"preferred_language":  profile.PreferredLang,
 			"phone_number_set":    profile.PhoneNumber != "",
 			"phone_number_masked": maskedPhone,

@@ -4,161 +4,177 @@ import (
 	"database/sql"
 	"fmt"
 	"log"
+	"net/url"
 	"strings"
 	"time"
 
 	"kitchenai-backend/internal/models"
-	"kitchenai-backend/pkg/config"
 
-	"github.com/twilio/twilio-go"
-	twilioApi "github.com/twilio/twilio-go/rest/api/v2010"
+	"github.com/lib/pq"
 )
 
-// WhatsAppService handles WhatsApp messaging via Twilio
+// WhatsAppService builds WhatsApp "click to chat" links (https://wa.me/…).
+// Messages are sent from the household member's own WhatsApp app, not via a provider API.
 type WhatsAppService struct {
-	config       *config.Config
-	twilioClient *twilio.RestClient
-	db           *sql.DB
+	db *sql.DB
 }
 
-// NewWhatsAppService creates a new WhatsApp service
-func NewWhatsAppService(cfg *config.Config, db *sql.DB) *WhatsAppService {
-	var client *twilio.RestClient
-
-	if cfg.TwilioAccountSID != "" && cfg.TwilioAuthToken != "" {
-		client = twilio.NewRestClientWithParams(twilio.ClientParams{
-			Username: cfg.TwilioAccountSID,
-			Password: cfg.TwilioAuthToken,
-		})
-		log.Println("Twilio client initialized")
-	} else {
-		log.Println("Twilio credentials not provided, running in test mode")
-	}
-
+// NewWhatsAppService creates a WhatsApp helper (no third-party messaging API).
+func NewWhatsAppService(db *sql.DB) *WhatsAppService {
+	log.Println("WhatsApp: using wa.me compose links (user sends from their app)")
 	return &WhatsAppService{
-		config:       cfg,
-		twilioClient: client,
-		db:           db,
+		db: db,
 	}
 }
 
-// SendMessage sends a WhatsApp message to a phone number
-func (s *WhatsAppService) SendMessage(toPhoneNumber, message string) (string, error) {
-	// Format phone number for WhatsApp
-	if !strings.HasPrefix(toPhoneNumber, "whatsapp:") {
-		toPhoneNumber = "whatsapp:" + toPhoneNumber
-	}
-
-	// If in test mode or no Twilio client, log and return mock response
-	if s.config.WhatsAppTestMode || s.twilioClient == nil {
-		log.Printf("[TEST MODE] Would send WhatsApp message to %s: %s", toPhoneNumber, message)
-		return "mock-message-sid-test", nil
-	}
-
-	params := &twilioApi.CreateMessageParams{}
-	params.SetTo(toPhoneNumber)
-	params.SetFrom(s.config.TwilioWhatsAppFrom)
-	params.SetBody(message)
-
-	resp, err := s.twilioClient.Api.CreateMessage(params)
+// BuildWaMeURL returns a https://wa.me/<digits>?text=… URL for opening WhatsApp with a draft message.
+func BuildWaMeURL(rawPhone, message string) (string, error) {
+	digits, err := normalizePhoneDigits(rawPhone)
 	if err != nil {
-		return "", fmt.Errorf("failed to send WhatsApp message: %w", err)
+		return "", err
 	}
-
-	if resp.Sid != nil {
-		return *resp.Sid, nil
+	u, err := url.Parse("https://wa.me/" + digits)
+	if err != nil {
+		return "", err
 	}
-
-	return "", fmt.Errorf("no message SID returned from Twilio")
+	q := u.Query()
+	q.Set("text", message)
+	u.RawQuery = q.Encode()
+	return u.String(), nil
 }
 
-// SendMealSuggestionToCook sends a meal suggestion to the cook in their preferred language
-func (s *WhatsAppService) SendMealSuggestionToCook(mealName string, ingredients []models.Ingredient, cookingTime int) (string, error) {
-	// Get cook profile
-	cookProfile, err := s.getCookProfile()
-	if err != nil {
-		return "", fmt.Errorf("failed to get cook profile: %w", err)
+func normalizePhoneDigits(raw string) (string, error) {
+	s := strings.TrimSpace(raw)
+	s = strings.TrimPrefix(s, "whatsapp:")
+	s = strings.TrimSpace(s)
+	var b strings.Builder
+	for _, r := range s {
+		if r >= '0' && r <= '9' {
+			b.WriteRune(r)
+		}
 	}
+	out := b.String()
+	if len(out) < 10 {
+		return "", fmt.Errorf("invalid phone number: need at least 10 digits (include country code, e.g. +91…)")
+	}
+	return out, nil
+}
 
-	// If no phone number, return error
+// PrepareGenericWhatsApp returns body text and wa.me URL for an arbitrary recipient.
+func (s *WhatsAppService) PrepareGenericWhatsApp(toPhoneNumber, message string) (body, waURL string, err error) {
+	if strings.TrimSpace(toPhoneNumber) == "" {
+		return "", "", fmt.Errorf("phone number is required")
+	}
+	if strings.TrimSpace(message) == "" {
+		return "", "", fmt.Errorf("message is required")
+	}
+	waURL, err = BuildWaMeURL(toPhoneNumber, message)
+	if err != nil {
+		return "", "", err
+	}
+	return message, waURL, nil
+}
+
+// PrepareMealSuggestionToCook builds the message and wa.me URL for the cook from the user's WhatsApp.
+func (s *WhatsAppService) PrepareMealSuggestionToCook(userID, mealName string, ingredients []models.Ingredient, cookingTime int, extraNote string) (body, waURL string, err error) {
+	cookProfile, err := s.getCookProfileForUser(userID)
+	if err != nil {
+		return "", "", fmt.Errorf("failed to get cook profile: %w", err)
+	}
 	if cookProfile.PhoneNumber == "" {
-		return "", fmt.Errorf("cook phone number not set")
+		return "", "", fmt.Errorf("cook phone number not set")
 	}
-
-	// Translate message to cook's preferred language
-	message := s.buildMealMessage(mealName, ingredients, cookingTime, cookProfile.PreferredLang)
-
-	// Send message
-	return s.SendMessage(cookProfile.PhoneNumber, message)
-}
-
-// SendDailyMenu sends the approved daily menu to the cook
-func (s *WhatsAppService) SendDailyMenu(menu []models.MealSuggestion) (string, error) {
-	cookProfile, err := s.getCookProfile()
+	body = s.buildMealMessage(mealName, ingredients, cookingTime, cookProfile.PreferredLang, cookProfile.CookName)
+	if t := strings.TrimSpace(extraNote); t != "" {
+		body += "\n\n" + t
+	}
+	waURL, err = BuildWaMeURL(cookProfile.PhoneNumber, body)
 	if err != nil {
-		return "", fmt.Errorf("failed to get cook profile: %w", err)
+		return "", "", err
 	}
+	return body, waURL, nil
+}
 
+// PrepareDailyMenuToCook builds the daily menu message and wa.me URL.
+func (s *WhatsAppService) PrepareDailyMenuToCook(userID string, menu []models.MealSuggestion) (body, waURL string, err error) {
+	cookProfile, err := s.getCookProfileForUser(userID)
+	if err != nil {
+		return "", "", fmt.Errorf("failed to get cook profile: %w", err)
+	}
 	if cookProfile.PhoneNumber == "" {
-		return "", fmt.Errorf("cook phone number not set")
+		return "", "", fmt.Errorf("cook phone number not set")
 	}
-
-	message := s.buildDailyMenuMessage(menu, cookProfile.PreferredLang)
-	return s.SendMessage(cookProfile.PhoneNumber, message)
+	body = s.buildDailyMenuMessage(menu, cookProfile.PreferredLang, cookProfile.CookName)
+	waURL, err = BuildWaMeURL(cookProfile.PhoneNumber, body)
+	if err != nil {
+		return "", "", err
+	}
+	return body, waURL, nil
 }
 
-// SendShoppingList sends shopping list to user/cook
-func (s *WhatsAppService) SendShoppingList(items []models.ShoppingListItem, recipientPhone string) (string, error) {
-	message := s.buildShoppingListMessage(items, "en") // Default to English for shopping lists
-	return s.SendMessage(recipientPhone, message)
+// PrepareShoppingListWhatsApp builds a shopping-list message and wa.me URL for a given number.
+func (s *WhatsAppService) PrepareShoppingListWhatsApp(recipientPhone string, items []models.ShoppingListItem) (body, waURL string, err error) {
+	body = s.buildShoppingListMessage(items, "en")
+	waURL, err = BuildWaMeURL(recipientPhone, body)
+	if err != nil {
+		return "", "", err
+	}
+	return body, waURL, nil
 }
 
-// getCookProfile retrieves the cook profile from database
-func (s *WhatsAppService) getCookProfile() (*models.CookProfile, error) {
-	cookID := "default-cook"
-
+// getCookProfileForUser loads the cook profile for WhatsApp (scoped to the logged-in user).
+func (s *WhatsAppService) getCookProfileForUser(userID string) (*models.CookProfile, error) {
 	var profile models.CookProfile
 	err := s.db.QueryRow(`
-		SELECT cook_id, dishes_known, preferred_lang, phone_number, created_at, updated_at
+		SELECT cook_id, COALESCE(cook_name, ''), dishes_known, preferred_lang, COALESCE(phone_number, ''), created_at, updated_at
 		FROM cook_profile
-		WHERE cook_id = $1
-	`, cookID).Scan(
+		WHERE user_id = $1
+	`, userID).Scan(
 		&profile.CookID,
-		&profile.DishesKnown,
+		&profile.CookName,
+		pq.Array(&profile.DishesKnown),
 		&profile.PreferredLang,
 		&profile.PhoneNumber,
 		&profile.CreatedAt,
 		&profile.UpdatedAt,
 	)
-
 	if err == sql.ErrNoRows {
-		// Return default profile
-		return &models.CookProfile{
-			CookID:        cookID,
-			DishesKnown:   []string{},
-			PreferredLang: "en",
-			PhoneNumber:   "",
-		}, nil
-	} else if err != nil {
+		err = s.db.QueryRow(`
+			SELECT cook_id, COALESCE(cook_name, ''), dishes_known, preferred_lang, COALESCE(phone_number, ''), created_at, updated_at
+			FROM cook_profile
+			WHERE user_id IS NULL
+			LIMIT 1
+		`).Scan(
+			&profile.CookID,
+			&profile.CookName,
+			pq.Array(&profile.DishesKnown),
+			&profile.PreferredLang,
+			&profile.PhoneNumber,
+			&profile.CreatedAt,
+			&profile.UpdatedAt,
+		)
+	}
+	if err == sql.ErrNoRows {
+		return nil, fmt.Errorf("cook profile not found")
+	}
+	if err != nil {
 		return nil, err
 	}
-
 	return &profile, nil
 }
 
 // buildMealMessage builds a meal suggestion message in the target language
-func (s *WhatsAppService) buildMealMessage(mealName string, ingredients []models.Ingredient, cookingTime int, lang string) string {
-	// Simple translation mapping for demonstration
-	// In a real implementation, you would use Google Translate API
+func (s *WhatsAppService) buildMealMessage(mealName string, ingredients []models.Ingredient, cookingTime int, lang, cookName string) string {
+	cookName = strings.TrimSpace(cookName)
 	translations := map[string]map[string]string{
-		"hi": { // Hindi
+		"hi": {
 			"meal_suggestion": "भोजन सुझाव",
 			"ingredients":     "सामग्री",
 			"cooking_time":    "पकाने का समय",
 			"minutes":         "मिनट",
 			"prepare":         "कृपया तैयार करें",
 		},
-		"kn": { // Kannada
+		"kn": {
 			"meal_suggestion": "ಊಟದ ಸಲಹೆ",
 			"ingredients":     "ಪದಾರ್ಥಗಳು",
 			"cooking_time":    "ಅಡುಗೆ ಸಮಯ",
@@ -167,7 +183,6 @@ func (s *WhatsAppService) buildMealMessage(mealName string, ingredients []models
 		},
 	}
 
-	// Default to English
 	trans := translations[lang]
 	if trans == nil {
 		trans = map[string]string{
@@ -184,7 +199,19 @@ func (s *WhatsAppService) buildMealMessage(mealName string, ingredients []models
 		ingredientsList.WriteString(fmt.Sprintf("- %s: %.2f %s\n", ing.Name, ing.Quantity, ing.Unit))
 	}
 
-	return fmt.Sprintf(`%s: %s
+	var greeting string
+	if cookName != "" {
+		switch lang {
+		case "hi":
+			greeting = fmt.Sprintf("नमस्ते %s,\n\n", cookName)
+		case "kn":
+			greeting = fmt.Sprintf("ನಮಸ್ಕಾರ %s,\n\n", cookName)
+		default:
+			greeting = fmt.Sprintf("Hi %s,\n\n", cookName)
+		}
+	}
+
+	return greeting + fmt.Sprintf(`%s: %s
 
 %s:
 %s
@@ -198,17 +225,16 @@ func (s *WhatsAppService) buildMealMessage(mealName string, ingredients []models
 }
 
 // buildDailyMenuMessage builds daily menu message
-func (s *WhatsAppService) buildDailyMenuMessage(menu []models.MealSuggestion, lang string) string {
+func (s *WhatsAppService) buildDailyMenuMessage(menu []models.MealSuggestion, lang, cookName string) string {
+	cookName = strings.TrimSpace(cookName)
 	translations := map[string]map[string]string{
 		"hi": {
 			"daily_menu": "दैनिक मेनू",
-			"date":       "तारीख",
 			"meals":      "भोजन",
 			"thank_you":  "धन्यवाद",
 		},
 		"kn": {
 			"daily_menu": "ದೈನಂದಿನ ಮೆನು",
-			"date":       "ದಿನಾಂಕ",
 			"meals":      "ಊಟಗಳು",
 			"thank_you":  "ಧನ್ಯವಾದಗಳು",
 		},
@@ -218,7 +244,6 @@ func (s *WhatsAppService) buildDailyMenuMessage(menu []models.MealSuggestion, la
 	if trans == nil {
 		trans = map[string]string{
 			"daily_menu": "Daily Menu",
-			"date":       "Date",
 			"meals":      "Meals",
 			"thank_you":  "Thank you",
 		}
@@ -231,7 +256,19 @@ func (s *WhatsAppService) buildDailyMenuMessage(menu []models.MealSuggestion, la
 		mealsList.WriteString(fmt.Sprintf("%d. %s\n", i+1, meal.MealName))
 	}
 
-	return fmt.Sprintf(`%s - %s
+	var greeting string
+	if cookName != "" {
+		switch lang {
+		case "hi":
+			greeting = fmt.Sprintf("नमस्ते %s,\n\n", cookName)
+		case "kn":
+			greeting = fmt.Sprintf("ನಮಸ್ಕಾರ %s,\n\n", cookName)
+		default:
+			greeting = fmt.Sprintf("Hi %s,\n\n", cookName)
+		}
+	}
+
+	return greeting + fmt.Sprintf(`%s - %s
 
 %s:
 %s
@@ -251,13 +288,13 @@ func (s *WhatsAppService) buildShoppingListMessage(items []models.ShoppingListIt
 	}
 
 	list.WriteString("\nPlease purchase these items.")
+	_ = lang
 	return list.String()
 }
 
-// TestSendMessage sends a test WhatsApp message (for development)
-func (s *WhatsAppService) TestSendMessage() (string, error) {
-	testPhone := "whatsapp:+919876543210" // Sample Indian number
-	testMessage := "Test message from Kitchen AI. This is a test of WhatsApp integration."
-
-	return s.SendMessage(testPhone, testMessage)
+// PrepareTestWhatsApp returns a sample compose link (no cook profile required).
+func (s *WhatsAppService) PrepareTestWhatsApp() (body, waURL string, err error) {
+	body = "Test message from Kitchen AI — WhatsApp compose link check."
+	waURL, err = BuildWaMeURL("+919876543210", body)
+	return body, waURL, err
 }

@@ -3,7 +3,7 @@
 ## Prerequisites
 
 1. **PostgreSQL**: Install PostgreSQL 14+ or use Supabase
-2. **Go**: Version 1.21+ 
+2. **Go**: Version 1.22+ (repo targets 1.25)
 3. **Node.js**: Version 18+ with npm
 4. **Expo CLI**: For React Native development
 
@@ -20,10 +20,11 @@ cd Kitchenai
 # Option A: Local PostgreSQL
 createdb kitchenai
 psql -d kitchenai -f database/schema.sql
+psql -d kitchenai -f backend/migrations/001_optional_schema.sql
 
 # Option B: Supabase
 # 1. Create a new project on supabase.com
-# 2. Run the SQL from database/schema.sql in the SQL editor
+# 2. Run database/schema.sql then backend/migrations/001_optional_schema.sql in the SQL editor
 # 3. Note your database connection string
 ```
 
@@ -31,15 +32,15 @@ psql -d kitchenai -f database/schema.sql
 ```bash
 cd backend
 
-# Install Go dependencies
 go mod download
 
-# Set environment variables
-export DATABASE_URL="postgres://user:password@localhost:5432/kitchenai?sslmode=disable"
-export PORT="8080"
+# Copy and edit env (see backend/.env.example)
+cp .env.example .env
+# Required at minimum: DATABASE_URL, GOOGLE_CLIENT_ID, SESSION_TOKEN_SECRET,
+# and LLM keys (GROQ_* with LLM_PROVIDER=groq, or GEMINI_* with LLM_PROVIDER=gemini).
 
-# Run the server
-go run cmd/api/main.go
+# Run API (loads .env from this directory when present)
+go run ./cmd/api
 ```
 
 ### 4. Frontend Setup
@@ -49,10 +50,9 @@ cd frontend/kitchenai-frontend
 # Install dependencies
 npm install
 
-# Update API URL if needed (edit App.tsx line 8)
-# const API_BASE_URL = 'http://localhost:8080/api/v1';
+# Set EXPO_PUBLIC_API_BASE_URL in .env (e.g. http://localhost:8080/api/v1)
 
-# Start Expo
+# Start Expo (web often uses port 8082, e.g. npx expo start --web --port 8082)
 npx expo start
 
 # Scan QR code with Expo Go app (iOS/Android)
@@ -95,13 +95,14 @@ Expected output:
 
 ## Configuration Files
 
-### Backend Configuration (`backend/pkg/config/config.go`)
-- `PORT`: Server port (default: 8080)
-- `DATABASE_URL`: PostgreSQL connection string
-- `ENVIRONMENT`: `development` or `production`
+### Backend configuration
+- Primary source: **`backend/.env`** (loaded automatically at startup).
+- Reference: **`backend/.env.example`** — documents `DATABASE_URL`, `LLM_PROVIDER`, `GROQ_*`, `GEMINI_*`, `KAFKA_*`, `GOOGLE_CLIENT_ID`, `SESSION_TOKEN_SECRET`, pool tuning, etc.
+- Code defaults live in **`backend/pkg/config/config.go`**.
 
-### Frontend Configuration (`frontend/kitchenai-frontend/App.tsx`)
-- `API_BASE_URL`: Backend API URL (line 8)
+### Frontend configuration (`frontend/kitchenai-frontend/.env`)
+- `EXPO_PUBLIC_API_BASE_URL` — backend base URL including `/api/v1`
+- Google OAuth `EXPO_PUBLIC_*` variables — see **`GOOGLE_OAUTH_SETUP.md`**
 
 ### MCP Server Configuration (`mcp-server/.env`)
 ```env
@@ -111,14 +112,14 @@ DATABASE_URL=postgres://user:password@localhost:5432/kitchenai
 ## Next Steps for Development
 
 ### Week 2: Vision Engine
-1. Integrate Gemini 1.5 Pro API
-2. Implement bill scanning with OCR
-3. Create image processing pipeline
+1. Bill scanning is implemented against **Groq (default)** or **Gemini** via `LLM_PROVIDER`
+2. Tune prompts and parsing in `backend/internal/services/` (`gemini.go`, `groq.go`, `llm_provider.go`)
+3. Optional: wire additional image preprocessing before LLM calls
 
-### Week 3: Cook Integration
-1. Set up Twilio/WhatsApp Business API
-2. Implement language translation (Hindi/Kannada)
-3. Create message templates
+### Cook / WhatsApp (current behavior)
+1. Store cook **`phone_number`** (and optional **`cook_name`**) via **`PUT /api/v1/cook/profile`**
+2. Meal / menu / generic WhatsApp endpoints return **`whatsapp_url`** — open in the app to send from the **user's** WhatsApp (no Twilio)
+3. Optional **`GOOGLE_TRANSLATE_KEY`** for translation features where implemented
 
 ### Week 4: Reasoning Layer
 1. Enhance "Rescue Meal" algorithm
@@ -154,7 +155,7 @@ go version
 # Clean build
 go clean -modcache
 go mod tidy
-go run cmd/api/main.go
+go run ./cmd/api
 ```
 
 ### React Native Issues
@@ -182,9 +183,9 @@ npm install @modelcontextprotocol/sdk pg dotenv
 ```bash
 # Build binary
 cd backend
-go build -o kitchenai-backend cmd/api/main.go
+go build -o kitchenai-backend ./cmd/api
 
-# Run with environment variables
+# Run (prefer a production .env or injected env vars)
 DATABASE_URL="your_production_db" PORT="8080" ./kitchenai-backend
 ```
 

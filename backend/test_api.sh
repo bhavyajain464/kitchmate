@@ -140,7 +140,7 @@ CODE=$(curl -s -o /dev/null -w "%{http_code}" -X POST "$API/procurement/shopping
   -d '{"include_low_stock":true,"include_expiring":true,"max_items":10}')
 check "POST /procurement/shopping-list" "$CODE" 200
 
-# ─── WhatsApp (test mode) ────────────────────────────────────
+# ─── WhatsApp (wa.me compose links; no Twilio) ───────────────
 bold "20. WhatsApp - Test Integration"
 CODE=$(curl -s -o /dev/null -w "%{http_code}" -H "$AUTH" "$API/whatsapp/test")
 check "GET /whatsapp/test" "$CODE" 200

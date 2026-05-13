@@ -209,32 +209,7 @@ Return ONLY a JSON array, no markdown:
 		}
 	}
 
-	cleaned := strings.TrimSpace(responseText)
-	if strings.HasPrefix(cleaned, "```json") {
-		cleaned = strings.TrimPrefix(cleaned, "```json")
-	}
-	if strings.HasPrefix(cleaned, "```") {
-		cleaned = strings.TrimPrefix(cleaned, "```")
-	}
-	if strings.HasSuffix(cleaned, "```") {
-		cleaned = strings.TrimSuffix(cleaned, "```")
-	}
-	cleaned = strings.TrimSpace(cleaned)
-
-	var estimates []ShelfLifeEstimate
-	if err := json.Unmarshal([]byte(cleaned), &estimates); err != nil {
-		start := strings.Index(cleaned, "[")
-		end := strings.LastIndex(cleaned, "]")
-		if start != -1 && end != -1 && end > start {
-			if err2 := json.Unmarshal([]byte(cleaned[start:end+1]), &estimates); err2 != nil {
-				return nil, fmt.Errorf("failed to parse shelf life response: %v", err2)
-			}
-		} else {
-			return nil, fmt.Errorf("no valid JSON in response: %v", err)
-		}
-	}
-
-	return estimates, nil
+	return parseShelfLifeJSON(responseText)
 }
 
 // ParseBillItems parses the JSON response from Gemini into BillItem slice

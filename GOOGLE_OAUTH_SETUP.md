@@ -2,6 +2,12 @@
 
 This guide explains how to configure Google OAuth for multi-platform support (Web, iOS, Android) in the KitchenAI application.
 
+## Ports and env (current app)
+
+- **Backend API**: `http://localhost:8080` (or your deployed URL). Paths live under `/api/v1`.
+- **Expo web dev** often runs on **`http://localhost:8082`** — add that origin and matching **Authorized redirect URI** in the Google Cloud **Web client** if you use Expo web.
+- Frontend secrets live in **`frontend/kitchenai-frontend/.env`** (`EXPO_PUBLIC_*`). Backend uses **`backend/.env`** for `GOOGLE_CLIENT_ID` (server token verification) and `SESSION_TOKEN_SECRET`.
+
 ## Current Configuration
 
 - **Machine IP**: 192.168.0.116
@@ -17,10 +23,12 @@ Go to [Google Cloud Console](https://console.cloud.google.com/) → APIs & Servi
 - **Type**: Web application
 - **Name**: `kitchenai-web-client`
 - **Authorized JavaScript origins**:
+  - `http://localhost:8082` (Expo web, common local default)
   - `http://localhost:19006`
   - `http://192.168.0.116:19006`
   - `http://localhost:3000`
 - **Authorized redirect URIs**:
+  - `http://localhost:8082`
   - `http://localhost:19006`
   - `http://192.168.0.116:19006`
   - `http://localhost:3000`

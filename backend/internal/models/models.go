@@ -98,6 +98,7 @@ type AddMemoryRequest struct {
 // CookProfile represents cook's skills and language preferences
 type CookProfile struct {
 	CookID        string    `json:"cook_id"`
+	CookName      string    `json:"cook_name,omitempty"`
 	DishesKnown   []string  `json:"dishes_known"`
 	PreferredLang string    `json:"preferred_lang"`
 	PhoneNumber   string    `json:"phone_number,omitempty"`
@@ -107,6 +108,7 @@ type CookProfile struct {
 
 // CookProfileRequest represents the payload for updating cook profile
 type CookProfileRequest struct {
+	CookName      string   `json:"cook_name,omitempty"`
 	DishesKnown   []string `json:"dishes_known"`
 	PreferredLang string   `json:"preferred_lang"`
 	PhoneNumber   string   `json:"phone_number,omitempty"`

@@ -5,6 +5,8 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/joho/godotenv"
+
 	"kitchenai-backend/internal/db"
 	"kitchenai-backend/internal/handlers"
 	kafkalib "kitchenai-backend/internal/kafka"
@@ -34,6 +36,10 @@ func corsMiddleware(next http.Handler) http.Handler {
 }
 
 func main() {
+	if err := godotenv.Load(); err != nil {
+		log.Printf("no .env file loaded (%v); using process environment only", err)
+	}
+
 	cfg, err := config.Load()
 	if err != nil {
 		log.Fatalf("Failed to load config: %v", err)
@@ -54,7 +60,6 @@ func main() {
 	sqlDB := database.GetDB()
 
 	authService := services.NewAuthService(sqlDB, cfg)
-	whatsappService := services.NewWhatsAppService(cfg, sqlDB)
 	authHandler := handlers.NewAuthHandler(authService)
 
 	kafkaProducer := kafkalib.NewProducer(cfg)
@@ -133,7 +138,7 @@ func main() {
 	// Procurement (legacy)
 	api.Handle("/procurement/shopping-list", middleware.RequireAuth(http.HandlerFunc(handlers.GetShoppingListHandler(sqlDB)))).Methods("GET", "POST", "OPTIONS")
 	api.Handle("/procurement/low-stock", middleware.RequireAuth(http.HandlerFunc(handlers.GetLowStockItemsHandler(sqlDB)))).Methods("GET", "OPTIONS")
-	api.Handle("/procurement/pre-market-ping", middleware.RequireAuth(http.HandlerFunc(handlers.SendPreMarketPingHandler(sqlDB, whatsappService)))).Methods("POST", "OPTIONS")
+	api.Handle("/procurement/pre-market-ping", middleware.RequireAuth(http.HandlerFunc(handlers.SendPreMarketPingHandler(sqlDB)))).Methods("POST", "OPTIONS")
 	api.Handle("/procurement/summary", middleware.RequireAuth(http.HandlerFunc(handlers.GetProcurementSummaryHandler(sqlDB)))).Methods("GET", "OPTIONS")
 	api.Handle("/procurement/recent-lists", middleware.RequireAuth(http.HandlerFunc(handlers.GetRecentShoppingListsHandler(sqlDB)))).Methods("GET", "OPTIONS")
 

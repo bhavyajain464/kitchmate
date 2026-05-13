@@ -9,6 +9,8 @@ import (
 	"time"
 
 	"kitchenai-backend/internal/models"
+
+	"github.com/lib/pq"
 )
 
 // MealSuggestionService handles meal suggestion logic
@@ -155,12 +157,13 @@ func (s *MealSuggestionService) getExpiringItems(days int) ([]models.ExpiringIte
 
 // getCookProfile retrieves the cook profile
 func (s *MealSuggestionService) getCookProfile() (*models.CookProfile, error) {
-	query := `SELECT cook_id, dishes_known, preferred_lang, phone_number FROM cook_profile LIMIT 1`
+	query := `SELECT cook_id, COALESCE(cook_name, ''), dishes_known, preferred_lang, COALESCE(phone_number, '') FROM cook_profile LIMIT 1`
 
 	var profile models.CookProfile
 	err := s.db.QueryRow(query).Scan(
 		&profile.CookID,
-		&profile.DishesKnown,
+		&profile.CookName,
+		pq.Array(&profile.DishesKnown),
 		&profile.PreferredLang,
 		&profile.PhoneNumber,
 	)

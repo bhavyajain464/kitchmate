@@ -4,18 +4,15 @@ go 1.25.0
 
 require (
 	github.com/gorilla/mux v1.8.1
+	github.com/joho/godotenv v1.5.1
 	github.com/lib/pq v1.12.3
 	github.com/segmentio/kafka-go v0.4.51
-	github.com/twilio/twilio-go v1.30.7
 	google.golang.org/api v0.186.0
 )
 
 require (
-	github.com/golang-jwt/jwt/v5 v5.2.2 // indirect
-	github.com/golang/mock v1.6.0 // indirect
 	github.com/klauspost/compress v1.15.9 // indirect
 	github.com/pierrec/lz4/v4 v4.1.15 // indirect
-	github.com/pkg/errors v0.9.1 // indirect
 )
 
 require (

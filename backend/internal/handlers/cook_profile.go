@@ -6,6 +6,8 @@ import (
 	"net/http"
 
 	"kitchenai-backend/internal/models"
+
+	"github.com/lib/pq"
 )
 
 // GetCookProfile returns the cook profile for the authenticated user
@@ -15,12 +17,13 @@ func GetCookProfile(db *sql.DB) http.HandlerFunc {
 
 		var profile models.CookProfile
 		err := db.QueryRow(`
-			SELECT cook_id, dishes_known, preferred_lang, phone_number, created_at, updated_at
+			SELECT cook_id, COALESCE(cook_name, ''), dishes_known, preferred_lang, COALESCE(phone_number, ''), created_at, updated_at
 			FROM cook_profile
 			WHERE user_id = $1
 		`, userID).Scan(
 			&profile.CookID,
-			&profile.DishesKnown,
+			&profile.CookName,
+			pq.Array(&profile.DishesKnown),
 			&profile.PreferredLang,
 			&profile.PhoneNumber,
 			&profile.CreatedAt,
@@ -30,13 +33,14 @@ func GetCookProfile(db *sql.DB) http.HandlerFunc {
 		if err == sql.ErrNoRows {
 			// Fall back to legacy profile without user_id
 			err = db.QueryRow(`
-				SELECT cook_id, dishes_known, preferred_lang, phone_number, created_at, updated_at
+				SELECT cook_id, COALESCE(cook_name, ''), dishes_known, preferred_lang, COALESCE(phone_number, ''), created_at, updated_at
 				FROM cook_profile
 				WHERE user_id IS NULL
 				LIMIT 1
 			`).Scan(
 				&profile.CookID,
-				&profile.DishesKnown,
+				&profile.CookName,
+				pq.Array(&profile.DishesKnown),
 				&profile.PreferredLang,
 				&profile.PhoneNumber,
 				&profile.CreatedAt,
@@ -86,18 +90,18 @@ func UpdateCookProfile(db *sql.DB) http.HandlerFunc {
 		if exists {
 			_, err := db.Exec(`
 				UPDATE cook_profile
-				SET dishes_known = $1, preferred_lang = $2, phone_number = $3
-				WHERE user_id = $4
-			`, req.DishesKnown, req.PreferredLang, req.PhoneNumber, userID)
+				SET dishes_known = $1, preferred_lang = $2, phone_number = $3, cook_name = NULLIF(TRIM($4), '')
+				WHERE user_id = $5
+			`, pq.Array(req.DishesKnown), req.PreferredLang, req.PhoneNumber, req.CookName, userID)
 			if err != nil {
 				http.Error(w, err.Error(), http.StatusInternalServerError)
 				return
 			}
 		} else {
 			_, err := db.Exec(`
-				INSERT INTO cook_profile (dishes_known, preferred_lang, phone_number, user_id)
-				VALUES ($1, $2, $3, $4)
-			`, req.DishesKnown, req.PreferredLang, req.PhoneNumber, userID)
+				INSERT INTO cook_profile (dishes_known, preferred_lang, phone_number, cook_name, user_id)
+				VALUES ($1, $2, $3, NULLIF(TRIM($4), ''), $5)
+			`, pq.Array(req.DishesKnown), req.PreferredLang, req.PhoneNumber, req.CookName, userID)
 			if err != nil {
 				http.Error(w, err.Error(), http.StatusInternalServerError)
 				return

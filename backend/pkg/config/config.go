@@ -3,6 +3,7 @@ package config
 import (
 	"os"
 	"strconv"
+	"strings"
 )
 
 type Config struct {
@@ -11,10 +12,11 @@ type Config struct {
 	Environment         string
 	GeminiAPIKey        string
 	GeminiModel         string
-	TwilioAccountSID    string
-	TwilioAuthToken     string
-	TwilioWhatsAppFrom  string
-	WhatsAppTestMode    bool
+	GroqAPIKey          string
+	GroqModel           string
+	GroqVisionModel     string
+	// LLMProvider is "gemini" or "groq" (default groq). One provider per request — no cross-provider fallback.
+	LLMProvider string
 	GoogleTranslateKey  string
 	GoogleClientID      string
 	SessionTokenSecret  string
@@ -54,10 +56,13 @@ func Load() (*Config, error) {
 	environment := getEnv("ENVIRONMENT", "development")
 	geminiAPIKey := getEnv("GEMINI_API_KEY", "")
 	geminiModel := getEnv("GEMINI_MODEL", "gemini-1.5-pro")
-	twilioAccountSID := getEnv("TWILIO_ACCOUNT_SID", "")
-	twilioAuthToken := getEnv("TWILIO_AUTH_TOKEN", "")
-	twilioWhatsAppFrom := getEnv("TWILIO_WHATSAPP_FROM", "whatsapp:+14155238886") // Twilio sandbox number
-	whatsAppTestMode := getEnvBool("WHATSAPP_TEST_MODE", true)
+	groqAPIKey := getEnv("GROQ_API_KEY", "")
+	groqModel := getEnv("GROQ_MODEL", "llama-3.3-70b-versatile")
+	groqVisionModel := getEnv("GROQ_VISION_MODEL", "llama-3.2-11b-vision-preview")
+	llmProvider := strings.ToLower(strings.TrimSpace(getEnv("LLM_PROVIDER", "groq")))
+	if llmProvider != "gemini" && llmProvider != "groq" {
+		llmProvider = "groq"
+	}
 	googleTranslateKey := getEnv("GOOGLE_TRANSLATE_KEY", "")
 	googleClientID := getEnv("GOOGLE_CLIENT_ID", "")
 	sessionTokenSecret := getEnv("SESSION_TOKEN_SECRET", "kitchenai-dev-session-secret")
@@ -166,10 +171,10 @@ func Load() (*Config, error) {
 		Environment:                        environment,
 		GeminiAPIKey:                       geminiAPIKey,
 		GeminiModel:                        geminiModel,
-		TwilioAccountSID:                   twilioAccountSID,
-		TwilioAuthToken:                    twilioAuthToken,
-		TwilioWhatsAppFrom:                 twilioWhatsAppFrom,
-		WhatsAppTestMode:                   whatsAppTestMode,
+		GroqAPIKey:                         groqAPIKey,
+		GroqModel:                          groqModel,
+		GroqVisionModel:                    groqVisionModel,
+		LLMProvider:                        llmProvider,
 		GoogleTranslateKey:                 googleTranslateKey,
 		GoogleClientID:                     googleClientID,
 		SessionTokenSecret:                 sessionTokenSecret,

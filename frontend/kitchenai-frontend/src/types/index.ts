@@ -128,10 +128,14 @@ export interface ScanResult {
 }
 
 export interface WhatsAppResult {
-  status?: string;
-  message_id?: string;
-  translated?: boolean;
+  success?: boolean;
   message?: string;
+  body?: string;
+  whatsapp_url?: string;
+  message_id?: string;
+  error?: string;
+  status?: string;
+  translated?: boolean;
 }
 
 export interface UserMemory {
@@ -169,6 +173,7 @@ export interface UpdateProfileRequest {
 export interface CookInfo {
   cook_id?: string;
   name: string;
+  cook_name?: string;
   dishes_known: string[];
   preferred_lang: string;
   phone_number?: string;
@@ -176,6 +181,7 @@ export interface CookInfo {
 
 export interface CookProfile {
   cook_id: string;
+  cook_name?: string;
   dishes_known: string[];
   preferred_lang: string;
   phone_number?: string;

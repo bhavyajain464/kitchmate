@@ -136,19 +136,13 @@ func processMessage(db *sql.DB, cfg *config.Config, raw []byte) {
 		return
 	}
 
-	if cfg.GeminiAPIKey == "" {
-		log.Printf("[kafka-consumer] no Gemini key, applying defaults")
+	haveLLMKey := (cfg.LLMProvider == "gemini" && cfg.GeminiAPIKey != "") ||
+		(cfg.LLMProvider == "groq" && cfg.GroqAPIKey != "")
+	if !haveLLMKey {
+		log.Printf("[kafka-consumer] no API key for LLM_PROVIDER=%s, applying defaults", cfg.LLMProvider)
 		applyDefaults(db, items)
 		return
 	}
-
-	gemini, err := services.NewGeminiService(cfg.GeminiAPIKey, cfg.GeminiModel)
-	if err != nil {
-		log.Printf("[kafka-consumer] Gemini init failed, using defaults: %v", err)
-		applyDefaults(db, items)
-		return
-	}
-	defer gemini.Close()
 
 	batchSize := cfg.KafkaConsumerGeminiBatchSize
 	pause := time.Duration(cfg.KafkaConsumerPauseBetweenBatchesMs) * time.Millisecond
@@ -157,7 +151,7 @@ func processMessage(db *sql.DB, cfg *config.Config, raw []byte) {
 		if end > len(items) {
 			end = len(items)
 		}
-		processBatch(db, gemini, items[i:end])
+		processBatch(db, cfg, items[i:end])
 		if pause > 0 && end < len(items) {
 			time.Sleep(pause)
 		}
@@ -212,13 +206,13 @@ func fetchItemsNeedingExpiry(db *sql.DB, itemIDs []string) []itemRow {
 	return items
 }
 
-func processBatch(db *sql.DB, gemini *services.GeminiService, items []itemRow) {
+func processBatch(db *sql.DB, cfg *config.Config, items []itemRow) {
 	names := make([]string, len(items))
 	for i, it := range items {
 		names[i] = it.CanonicalName
 	}
 
-	estimates, err := gemini.EstimateShelfLife(names)
+	estimates, err := services.EstimateShelfLifeForConfig(context.Background(), cfg, names)
 	if err != nil {
 		log.Printf("[kafka-consumer] LLM estimation failed, using defaults: %v", err)
 		applyDefaults(db, items)

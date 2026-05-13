@@ -58,18 +58,7 @@ func ScanBill(db *sql.DB, cfg *config.Config) http.HandlerFunc {
 			}
 		}
 
-		geminiService, err := services.NewGeminiService(cfg.GeminiAPIKey, cfg.GeminiModel)
-		if err != nil {
-			response := ScanBillResponse{
-				Success: false,
-				Message: fmt.Sprintf("Failed to initialize Gemini service: %v", err),
-			}
-			writeJSONResponse(w, http.StatusInternalServerError, response)
-			return
-		}
-		defer geminiService.Close()
-
-		items, err := geminiService.ScanBillFromBase64(req.ImageData, req.ImageType)
+		items, err := services.ScanBillBase64ForConfig(r.Context(), cfg, req.ImageData, req.ImageType)
 		if err != nil {
 			response := ScanBillResponse{
 				Success: false,
@@ -133,20 +122,8 @@ func ScanBillMultipart(db *sql.DB, cfg *config.Config) http.HandlerFunc {
 			}
 		}
 
-		// Initialize Gemini service
-		geminiService, err := services.NewGeminiService(cfg.GeminiAPIKey, cfg.GeminiModel)
-		if err != nil {
-			response := ScanBillResponse{
-				Success: false,
-				Message: fmt.Sprintf("Failed to initialize Gemini service: %v", err),
-			}
-			writeJSONResponse(w, http.StatusInternalServerError, response)
-			return
-		}
-		defer geminiService.Close()
-
-		// Scan the bill
-		items, err := geminiService.ScanBill(fileData, imageType)
+		// Scan the bill (LLM_PROVIDER selects gemini vs groq)
+		items, err := services.ScanBillBytesForConfig(r.Context(), cfg, fileData, imageType)
 		if err != nil {
 			response := ScanBillResponse{
 				Success: false,

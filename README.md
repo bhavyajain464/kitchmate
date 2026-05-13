@@ -18,20 +18,21 @@ Create a central "Kitchen OS" that:
 
 ## 🏗️ System Architecture
 
-The system follows a **Model Context Protocol (MCP)** architecture:
+The app uses a **Go REST API** as the primary backend; an optional **MCP server** (`mcp-server/`) can expose tools for external LLM workflows.
 
 ```
 ┌─────────────────┐    ┌─────────────────┐    ┌─────────────────┐
-│   Frontend      │    │   MCP Server    │    │   PostgreSQL    │
-│   (React Native)│◄──►│   (Logic Layer) │◄──►│   (Database)    │
-└─────────────────┘    └─────────────────┘    └─────────────────┘
-         │                       │                       │
-         │                       │                       │
-         ▼                       ▼                       ▼
+│   Frontend      │    │   Go API        │    │   PostgreSQL    │
+│   (Expo RN)     │◄──►│   (Gorilla Mux) │◄──►│   (inventory,   │
+└─────────────────┘    └─────────────────┘    │    prefs, cook) │
+         │                       │               └─────────────────┘
+         │                       │
+         ▼                       ▼
 ┌─────────────────┐    ┌─────────────────┐    ┌─────────────────┐
-│   WhatsApp      │    │   Reasoning     │    │   Gemini 1.5    │
-│   Gateway       │    │   Engine        │    │   Pro (AI)      │
-└─────────────────┘    └─────────────────┘    └─────────────────┘
+│ User's WhatsApp │    │ Optional Kafka  │    │ LLM (Groq or    │
+│ (wa.me links)   │    │ (shelf-life)    │    │ Gemini) bill /  │
+└─────────────────┘    └─────────────────┘    │ meals / shelf   │
+                                                └─────────────────┘
 ```
 
 ## 🚀 Features
@@ -50,10 +51,22 @@ The system follows a **Model Context Protocol (MCP)** architecture:
 
 - **Mobile**: React Native (Expo) with TypeScript
 - **Backend**: Go (Golang) with Gorilla Mux
-- **AI Protocol**: Model Context Protocol (MCP)
-- **Model**: Gemini 1.5 Pro (Multimodal)
+- **AI**: Groq and/or Google Gemini (multimodal where supported); optional **MCP** server for tooling
+- **Model**: Configurable LLM — **Groq** (default) or **Google Gemini** for vision/text (`LLM_PROVIDER`)
 - **Database**: PostgreSQL (Supabase)
-- **Communication**: Twilio/WhatsApp Business API
+- **WhatsApp handoff**: Opens the **household member's** WhatsApp with a pre-filled draft to the cook (`https://wa.me/...`) — no Twilio or Business API in the backend.
+
+## Current stack & configuration (what the repo runs today)
+
+| Layer | Notes |
+|--------|--------|
+| **Backend** | Go (`kitchenai-backend`), `cmd/api/main.go`. Loads **`backend/.env`** at startup via `godotenv` (optional file). |
+| **LLM** | **`LLM_PROVIDER`**: `groq` (default) or `gemini`. Bill scan, smart meals, and shelf-life use **one** provider per request (no automatic fallback). Keys: `GROQ_API_KEY`, optional `GROQ_MODEL` / `GROQ_VISION_MODEL`; or `GEMINI_API_KEY` / `GEMINI_MODEL` when `LLM_PROVIDER=gemini`. |
+| **WhatsApp** | API returns **`whatsapp_url`** + **`body`**; the **client** opens WhatsApp. Cook destination uses **`cook_profile.phone_number`** (E.164, digits only in `wa.me` link) and optional **`cook_name`** for greetings. |
+| **Kafka** | Optional async shelf-life (`KAFKA_ENABLED`, `KAFKA_BROKERS`, …). When disabled, producer/consumer stay off. |
+| **Auth** | Google OAuth + JWT; `GOOGLE_CLIENT_ID`, `SESSION_TOKEN_SECRET` on backend. Frontend uses `EXPO_PUBLIC_*` (see `GOOGLE_OAUTH_SETUP.md`). |
+
+Historical **week-by-week** sections below still describe milestone wording; where they conflict with the table above, **trust the table and `backend/.env.example`**.
 
 ## 📁 Project Structure
 
@@ -98,9 +111,11 @@ Kitchenai/
 
 ### Cook_Profile Table
 - `cook_id` (UUID) - Primary key
+- `cook_name` (VARCHAR, optional) - Display name used in WhatsApp draft greetings
 - `dishes_known` (TEXT[]) - Array of known dishes
-- `preferred_lang` (VARCHAR) - Language preference
-- `phone_number` (VARCHAR) - WhatsApp number
+- `preferred_lang` (VARCHAR) - Language for drafted messages (`en`, `hi`, `kn`)
+- `phone_number` (VARCHAR) - Cook WhatsApp (E.164, e.g. `+919876543210`) for `wa.me` links
+- `user_id` (UUID, optional) - Scopes profile to the logged-in user (see migrations)
 
 ## 🚀 Getting Started
 
@@ -114,6 +129,8 @@ createdb kitchenai
 psql -d kitchenai -f database/schema.sql
 ```
 
+After `database/schema.sql`, apply incremental SQL in **`backend/migrations/001_optional_schema.sql`** (user prefs columns, `user_memory`, `shopping_items`, `cook_profile.cook_name`, etc.) on your Postgres instance.
+
 ### 2. Backend Setup (Go)
 
 ```bash
@@ -122,12 +139,10 @@ cd backend
 # Install dependencies
 go mod download
 
-# Set environment variables
-export DATABASE_URL="postgres://user:password@localhost:5432/kitchenai?sslmode=disable"
-export PORT="8080"
+# Copy backend/.env.example → backend/.env and set DATABASE_URL, LLM keys, GOOGLE_CLIENT_ID, SESSION_TOKEN_SECRET, etc.
 
-# Run the server
-go run cmd/api/main.go
+# Run API (loads .env from backend directory when present)
+go run ./cmd/api
 ```
 
 ### 3. Frontend Setup (React Native)
@@ -164,6 +179,18 @@ npm start
 - `PUT /api/v1/inventory/{id}` - Update item
 - `DELETE /api/v1/inventory/{id}` - Delete item
 - `GET /api/v1/inventory/expiring` - Get items expiring soon
+
+### Bill scan & meals (auth required)
+- `POST /api/v1/bill/scan` - JSON body with base64 image (uses `LLM_PROVIDER`)
+- `POST /api/v1/bill/scan/upload` - Multipart bill image
+- `GET /api/v1/meals/smart` - Smart meal categories (query: `prompt`, `category`)
+
+### WhatsApp compose (auth required; **no server-side send**)
+- `POST /api/v1/whatsapp/send` — returns `{ success, whatsapp_url, body, message }` for arbitrary `phone_number` + `message`
+- `POST /api/v1/whatsapp/send-meal-suggestion` — draft to cook from profile; optional `instructions`
+- `POST /api/v1/whatsapp/send-daily-menu` — body `{ "menu": [ { "meal_name": "..." } ] }`
+- `GET /api/v1/whatsapp/test` — sample compose link + translation smoke test
+- `GET /api/v1/whatsapp/cook-info` — masked cook / phone metadata
 
 ### User & Cook Management
 - `GET /api/v1/user/preferences` - Get user preferences
@@ -206,15 +233,15 @@ chmod +x test_api.sh
 | Week | Focus | Milestone |
 |------|-------|-----------|
 | 1 | Foundation | PostgreSQL DB + MCP Server for inventory CRUD |
-| 2 | Vision Engine | Gemini-powered bill scanning |
-| 3 | Cook Integration | WhatsApp Business API bridge |
+| 2 | Vision Engine | Bill scanning + shelf-life via configured LLM (Groq or Gemini) |
+| 3 | Cook Integration | WhatsApp **draft** links (`wa.me`) from the user's app; cook profile |
 | 4 | Reasoning Layer | "Rescue Meal" logic (Expiry + Cook Skills) |
 | 5 | Frontend (App) | React Native UI for Android/iOS/Web |
 | 6 | Beta Testing | "Human-in-the-loop" testing in Bangalore |
 
 ## ✅ Week 2 Implementation: Vision Engine
 
-Week 2 focuses on implementing Gemini-powered bill scanning to auto-add items to the database.
+Week 2 focuses on **multimodal bill scanning** and related parsing, routed through **`LLM_PROVIDER`** (`groq` or `gemini`) — not Gemini-only.
 
 ### 🎯 Features Implemented
 
@@ -222,7 +249,7 @@ Week 2 focuses on implementing Gemini-powered bill scanning to auto-add items to
    - Added Google Gemini Go SDK (`github.com/google/generative-ai-go`)
    - Created `GeminiService` in `backend/internal/services/gemini.go`
    - Supports image processing via base64, file upload, or reader
-   - Configurable via environment variables (`GEMINI_API_KEY`, `GEMINI_MODEL`)
+   - Configurable via **`GEMINI_*`** when `LLM_PROVIDER=gemini`, or **`GROQ_*`** when `LLM_PROVIDER=groq` (default)
 
 2. **Bill Scanning Endpoints**
    - `POST /api/v1/bill/scan` - Accepts base64 encoded image
@@ -295,107 +322,52 @@ Focus on Indian grocery items like: rice, wheat flour, lentils (dal), vegetables
 - Updated `mcp-server/src/index.ts` - Added `scan_bill` tool
 - Updated `frontend/kitchenai-frontend/App.tsx` - Added bill scanning UI
 
-## ✅ Week 3 Implementation: Cook Integration (WhatsApp Bridge & Translation)
+## ✅ Week 3 Implementation: Cook integration (WhatsApp compose & translation)
 
-### 🎯 Features Implemented
+### What the code does today
 
-1. **WhatsApp Business API Integration**:
-   - Twilio WhatsApp Business API setup with sandbox configuration
-   - Test mode for development (no actual messages sent)
-   - Support for sending messages, meal suggestions, and daily menus
+1. **No Twilio / no WhatsApp Business API in the backend**
+   Endpoints build a **`https://wa.me/<digits>?text=…`** link plus plain-text **`body`**. The **Expo app** (or your HTTP client) opens that URL so the **user sends from their own WhatsApp**.
 
-2. **Native Language Translation**:
-   - Hindi and Kannada translation for kitchen terminology
-   - Built-in dictionary for common Indian kitchen terms
-   - Translation of meal suggestions and shopping lists
+2. **Cook profile** (`GET`/`PUT /api/v1/cook/profile`)
+   Stores **`phone_number`** (E.164) and optional **`cook_name`**, plus `dishes_known` and `preferred_lang` for draft wording.
 
-3. **Cook Communication Bridge**:
-   - Send meal suggestions to cook with ingredient details
-   - Send daily menu with cooking times
-   - Test WhatsApp integration endpoint
+3. **Translation helper** (`TranslationService`)
+   Dictionary-based Hindi/Kannada terms; optional **`GOOGLE_TRANSLATE_KEY`** for richer translation elsewhere.
 
-4. **Frontend Integration**:
-   - WhatsApp buttons in cook profile section
-   - Test message, meal suggestion, and daily menu sending
-   - Real-time feedback and result display
+4. **Frontend**
+   Cook screen calls the meal-suggestion API, then **`Linking.openURL` / `window.open`** on `whatsapp_url`.
 
-### 🛠️ Technical Details
+### Example JSON response
 
-**WhatsApp Service Architecture:**
-```go
-type WhatsAppService struct {
-    config *config.Config
-    db     *sql.DB
-    translationService *TranslationService
+```json
+{
+  "success": true,
+  "message": "Open WhatsApp to send to your cook.",
+  "body": "Hi Priya,\\n\\nMeal Suggestion: ...",
+  "whatsapp_url": "https://wa.me/919876543210?text=..."
 }
 ```
 
-**Translation Dictionary:**
-- Hindi: 50+ common kitchen terms (e.g., "tomato" → "टमाटर")
-- Kannada: 50+ common kitchen terms (e.g., "rice" → "ಅಕ್ಕಿ")
-- Fallback to English if term not found in dictionary
+### curl (requires `Authorization: Bearer <jwt>`)
 
-**Test Mode Configuration:**
 ```bash
-export WHATSAPP_TEST_MODE=true  # No actual WhatsApp messages sent
-export TWILIO_ACCOUNT_SID=""    # Leave empty for testing
-export TWILIO_AUTH_TOKEN=""     # Leave empty for testing
+curl -sS -H "Authorization: Bearer $TOKEN" http://localhost:8080/api/v1/whatsapp/test
 ```
 
-### 🚀 Usage
+```bash
+curl -sS -X POST http://localhost:8080/api/v1/whatsapp/send-meal-suggestion \
+  -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+  -d '{"meal_name":"Paneer Butter Masala","ingredients":[{"name":"Paneer","quantity":200,"unit":"grams"}],"cooking_time":30,"instructions":"Less oil please"}'
+```
 
-1. **Set WhatsApp Configuration:**
-   ```bash
-   export TWILIO_ACCOUNT_SID="your-account-sid"
-   export TWILIO_AUTH_TOKEN="your-auth-token"
-   export TWILIO_WHATSAPP_FROM="whatsapp:+14155238886"  # Twilio sandbox
-   export WHATSAPP_TEST_MODE=true  # Set to false for real messages
-   export GOOGLE_TRANSLATE_KEY=""  # Optional for advanced translation
-   ```
+### Key files
 
-2. **Test WhatsApp Integration:**
-   ```bash
-   curl -X GET http://localhost:8080/api/v1/whatsapp/test
-   ```
+- `backend/internal/services/whatsapp.go` — message templates + `BuildWaMeURL`
+- `backend/internal/handlers/whatsapp.go` — HTTP handlers
+- `frontend/kitchenai-frontend/src/screens/CookScreen.tsx` — opens `whatsapp_url`
 
-3. **Send Test WhatsApp Message:**
-   ```bash
-   curl -X POST http://localhost:8080/api/v1/whatsapp/send \
-     -H "Content-Type: application/json" \
-     -d '{
-       "phone_number": "+919876543210",
-       "message": "Hello from Kitchen AI!",
-       "language": "hindi",
-       "test_mode": true
-     }'
-   ```
-
-4. **Send Meal Suggestion to Cook:**
-   ```bash
-   curl -X POST http://localhost:8080/api/v1/whatsapp/send-meal-suggestion \
-     -H "Content-Type: application/json" \
-     -d '{
-       "meal_name": "Paneer Butter Masala",
-       "ingredients": [
-         {"name": "Paneer", "quantity": 200, "unit": "grams"},
-         {"name": "Tomato", "quantity": 3, "unit": "pieces"}
-       ],
-       "cooking_time": 30,
-       "language": "hindi",
-       "test_mode": true
-     }'
-   ```
-
-### 📁 New Files Created (Week 3)
-
-- `backend/internal/services/whatsapp.go` - WhatsApp messaging service
-- `backend/internal/services/translation.go` - Language translation service
-- `backend/internal/handlers/whatsapp.go` - WhatsApp API handlers
-- Updated `backend/pkg/config/config.go` - Added WhatsApp/Twilio configuration
-- Updated `backend/internal/models/models.go` - Added Ingredient, MealSuggestion, ShoppingListItem models
-- Updated `backend/cmd/api/main.go` - Added WhatsApp routes
-- Updated `mcp-server/src/index.ts` - Added WhatsApp tools (`send_whatsapp_message`, `send_meal_suggestion_to_cook`, `send_daily_menu_to_cook`)
-- Updated `frontend/kitchenai-frontend/App.tsx` - Added WhatsApp integration UI
+**Inbound replies from the cook** are not implemented yet (would need Cloud API, shared inbox, or a manual capture flow).
 
 ## ✅ Week 4 Implementation: Reasoning Layer - Rescue Meal Logic
 
@@ -513,7 +485,7 @@ type RescueMealResponse struct {
 
 1. **Low Stock Detection**: Automatically identifies items below minimum thresholds for 15+ common Indian kitchen items
 2. **Smart Shopping List Generation**: Creates shopping lists based on low stock items and expiring items
-3. **Pre-Market Ping**: Sends WhatsApp notifications to cook about low stock items before shopping trips
+3. **Pre-Market Ping**: API returns a **`whatsapp_url`** (and message body) so the user can remind the cook about low stock from their own WhatsApp — same pattern as `/whatsapp/*`.
 4. **Procurement Dashboard**: Summary view showing low stock count, expiring items, and recommendations
 5. **Shopping List History**: Tracks previously generated shopping lists
 
@@ -523,7 +495,7 @@ type RescueMealResponse struct {
 - **Procurement Service** (`backend/internal/services/procurement.go`):
   - `GetLowStockItems()`: Detects items below minimum thresholds
   - `GenerateShoppingList()`: Creates smart shopping lists
-  - `SendPreMarketPing()`: Sends WhatsApp notifications to cook
+  - `SendPreMarketPing()`: Builds low-stock text and **WhatsApp compose URL** for the cook
   - `GetProcurementSummary()`: Returns procurement status summary
   - `GetRecentShoppingLists()`: Retrieves shopping list history
 
@@ -540,7 +512,7 @@ type RescueMealResponse struct {
 #### API Endpoints (Week 5)
 - `GET /api/v1/procurement/low-stock` - Get low stock items
 - `POST /api/v1/procurement/shopping-list` - Generate shopping list
-- `POST /api/v1/procurement/pre-market-ping` - Send pre-market ping to cook
+- `POST /api/v1/procurement/pre-market-ping` - Returns `whatsapp_url` when cook phone is set (auth required)
 - `GET /api/v1/procurement/summary` - Get procurement summary
 - `GET /api/v1/procurement/recent-lists` - Get recent shopping lists
 
@@ -569,15 +541,12 @@ curl -X POST http://localhost:8080/api/v1/procurement/shopping-list \
 curl -X GET http://localhost:8080/api/v1/procurement/low-stock
 ```
 
-#### 3. Send Pre-Market Ping to Cook:
+#### 3. Pre-market ping (returns `whatsapp_url` in JSON when cook phone exists):
 ```bash
 curl -X POST http://localhost:8080/api/v1/procurement/pre-market-ping \
+  -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
-  -d '{
-    "language": "en",
-    "test_mode": true,
-    "include_all": false
-  }'
+  -d '{"language":"en","test_mode":false,"include_all":false}'
 ```
 
 #### 4. Get Procurement Summary:
@@ -588,7 +557,7 @@ curl -X GET http://localhost:8080/api/v1/procurement/summary
 #### 5. Frontend Integration:
 - Click "Generate Shopping List" button in Week 5 section
 - View low stock items with critical/priority indicators
-- Send pre-market notifications to cook
+- Send pre-market reminder (opens WhatsApp with draft)
 - Check procurement summary dashboard
 
 ### 📁 New Files Created (Week 5)
@@ -619,7 +588,8 @@ curl -X GET http://localhost:8080/api/v1/procurement/summary
 3. **Multi-user Support**: Family member accounts
 4. **Analytics Dashboard**: Food waste tracking and insights
 5. **Voice Integration**: Voice commands for cooks
-6. **Advanced Translation**: Full sentence translation using Google Translate API
+6. **Cook reply capture**: Not implemented — future work (WhatsApp Cloud API, shared thread, or manual paste).
+7. **Advanced translation**: Broader Google Translate usage where `GOOGLE_TRANSLATE_KEY` is set
 
 ## 📄 License
 
@@ -641,7 +611,7 @@ To enable Google OAuth authentication for your Kitchen AI application, follow th
 5. Configure the consent screen:
    - Application type: **Web application**
    - Name: "Kitchen AI"
-   - Authorized JavaScript origins: `http://localhost:19006` (for Expo development)
+   - Authorized JavaScript origins: e.g. `http://localhost:8082` (Expo web), `http://localhost:19006` (legacy Expo), plus your LAN URL if needed
    - Authorized redirect URIs: `http://localhost:8080/api/v1/auth/google-login` (backend callback)
 6. Click **Create** and note your **Client ID**
 
@@ -650,20 +620,20 @@ Add the following to your `.env` file in the backend directory:
 ```
 GOOGLE_CLIENT_ID=your_google_client_id_here
 SESSION_TOKEN_SECRET=your_session_secret_key_here
-DATABASE_URL=postgresql://kitch_admin:kitch@140.245.26.151:5432/kitch-mate?sslmode=disable
+DATABASE_URL=postgresql://user:password@host:5432/kitchenai?sslmode=disable
 ```
 
 ### 3. Frontend Integration
-The React Native frontend (`App.tsx`) includes Google Sign-In functionality:
+The React Native frontend uses `expo-auth-session` (see `src/` screens and `AuthContext`, not only `App.tsx`):
 - Uses `expo-auth-session` for Google authentication
 - Sends the Google ID token to the backend `/api/v1/auth/google-login` endpoint
 - Stores the JWT token for subsequent API requests
 
 ### 4. Testing Authentication
-1. Start the backend server:
+1. Start the backend (from `backend/`, with `.env` present):
    ```bash
    cd backend
-   DATABASE_URL="postgresql://kitch_admin:kitch@140.245.26.151:5432/kitch-mate?sslmode=disable" go run cmd/api/main.go
+   go run ./cmd/api
    ```
 
 2. Test the health endpoint:
@@ -684,7 +654,7 @@ The React Native frontend (`App.tsx`) includes Google Sign-In functionality:
 - ✅ Go backend compiles without errors
 - ✅ Server starts successfully on port 8080
 - ✅ Health endpoint responds correctly
-- ✅ CORS configured for frontend integration (localhost:19006)
+- ✅ CORS configured for frontend (e.g. Expo web on `localhost:8082`)
 
 ### Authentication System
 - ✅ Google OAuth implementation complete

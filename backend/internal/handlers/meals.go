@@ -80,10 +80,11 @@ func GetSmartMeals(db *sql.DB, cfg *config.Config) http.HandlerFunc {
 		}
 
 		prompt := buildMealPrompt(inventory, cookProfile, userPrefs, userPrompt, category)
+		prompt += mealVarietySuffix()
 
-		meals, err := callGeminiForMeals(cfg, prompt)
+		meals, err := callLLMForMeals(cfg, prompt)
 		if err != nil {
-			log.Printf("Gemini meal suggestion error: %v", err)
+			log.Printf("meal suggestion LLM error: %v", err)
 			meals = fallbackMeals(inventory)
 			if category != "" {
 				filtered := []MealCategory{}
@@ -146,11 +147,12 @@ func fetchUserInventory(db *sql.DB, userID string) []inventoryRow {
 func fetchUserCookProfile(db *sql.DB, userID string) *services.CookProfileData {
 	var cp services.CookProfileData
 	err := db.QueryRow(`
-		SELECT dishes_known, preferred_lang
+		SELECT COALESCE(cook_name, ''), dishes_known, preferred_lang
 		FROM cook_profile
 		WHERE user_id = $1 OR user_id IS NULL
+		ORDER BY CASE WHEN user_id = $1 THEN 0 ELSE 1 END
 		LIMIT 1
-	`, userID).Scan(pq.Array(&cp.DishesKnown), &cp.PreferredLang)
+	`, userID).Scan(&cp.CookName, pq.Array(&cp.DishesKnown), &cp.PreferredLang)
 	if err != nil {
 		return nil
 	}
@@ -237,6 +239,9 @@ func buildMealPrompt(inventory []inventoryRow, cook *services.CookProfileData, p
 
 	if cook != nil && len(cook.DishesKnown) > 0 {
 		sb.WriteString(fmt.Sprintf("\n## Cook's Known Dishes:\n%s\n", strings.Join(cook.DishesKnown, ", ")))
+	}
+	if cook != nil && strings.TrimSpace(cook.CookName) != "" {
+		sb.WriteString(fmt.Sprintf("\n## Cook's name (for tone only; do not echo unnecessarily):\n%s\n", strings.TrimSpace(cook.CookName)))
 	}
 
 	if prefs != nil {
@@ -359,6 +364,16 @@ Suggest 2 meals per category.
 	return sb.String()
 }
 
+// mealVarietySuffix nudges the model to explore different dishes on each regeneration (same inventory).
+func mealVarietySuffix() string {
+	n := time.Now().UnixNano()
+	return fmt.Sprintf(`
+
+## Variety for this run (request id %d)
+This may be a regeneration with identical inventory. You MUST propose meaningfully different meal names and concepts than a "default" answer: rotate regional Indian angles (e.g. coastal, Bengali, Punjabi, South Indian, Northeast, Indo-Chinese home style), cooking modes (one-pot, oven bake, tawa, steamer, no-cook), and protein/carb mixes when diet allows. Do not reuse the same cliché trio every time. Still obey every HARD constraint above.`,
+		n)
+}
+
 func callGeminiForMeals(cfg *config.Config, prompt string) ([]MealCategory, error) {
 	if cfg.GeminiAPIKey == "" {
 		return nil, fmt.Errorf("Gemini API key not configured")
@@ -374,8 +389,8 @@ func callGeminiForMeals(cfg *config.Config, prompt string) ([]MealCategory, erro
 	defer client.Close()
 
 	model := client.GenerativeModel(cfg.GeminiModel)
-	model.SetTemperature(0.9)
-	model.SetTopP(0.95)
+	model.SetTemperature(1.0)
+	model.SetTopP(0.98)
 
 	resp, err := model.GenerateContent(ctx, genai.Text(prompt))
 	if err != nil {
@@ -398,6 +413,30 @@ func callGeminiForMeals(cfg *config.Config, prompt string) ([]MealCategory, erro
 		log.Printf("Gemini raw response (first 300 chars): %s", text[:300])
 	} else {
 		log.Printf("Gemini raw response: %s", text)
+	}
+	return parseMealCategories(text)
+}
+
+func callLLMForMeals(cfg *config.Config, prompt string) ([]MealCategory, error) {
+	switch cfg.LLMProvider {
+	case "gemini":
+		return callGeminiForMeals(cfg, prompt)
+	default:
+		return callGroqForMeals(cfg, prompt)
+	}
+}
+
+func callGroqForMeals(cfg *config.Config, prompt string) ([]MealCategory, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+	text, err := services.GroqChatTextMeals(ctx, cfg.GroqAPIKey, cfg.GroqModel, prompt)
+	if err != nil {
+		return nil, fmt.Errorf("Groq API error: %w", err)
+	}
+	if len(text) > 300 {
+		log.Printf("Groq raw response (first 300 chars): %s", text[:300])
+	} else {
+		log.Printf("Groq raw response: %s", text)
 	}
 	return parseMealCategories(text)
 }

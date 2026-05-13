@@ -424,11 +424,12 @@ type PreMarketPingResponse struct {
 	Sent          bool     `json:"sent"`
 	Message       string   `json:"message"`
 	ItemsIncluded []string `json:"items_included"`
+	WhatsappURL   string   `json:"whatsapp_url,omitempty"`
 	Error         string   `json:"error,omitempty"`
 }
 
-// SendPreMarketPing sends a WhatsApp message to cook about low stock items
-func (s *ProcurementService) SendPreMarketPing(whatsappService *WhatsAppService, req PreMarketPingRequest) (*PreMarketPingResponse, error) {
+// SendPreMarketPing builds a WhatsApp compose link for low-stock items (user sends from their app).
+func (s *ProcurementService) SendPreMarketPing(req PreMarketPingRequest) (*PreMarketPingResponse, error) {
 	// Get low stock items
 	lowStockItems, err := s.GetLowStockItems()
 	if err != nil {
@@ -459,9 +460,6 @@ func (s *ProcurementService) SendPreMarketPing(whatsappService *WhatsAppService,
 		}, nil
 	}
 
-	// Build message for cook
-	message := buildPreMarketMessage(itemsToInclude, req.Language)
-
 	// Get cook's phone number from profile
 	cookProfile, err := s.getCookProfile()
 	if err != nil {
@@ -471,29 +469,27 @@ func (s *ProcurementService) SendPreMarketPing(whatsappService *WhatsAppService,
 	if cookProfile.PhoneNumber == "" {
 		return &PreMarketPingResponse{
 			Sent:          false,
-			Message:       "Cook phone number not found. Cannot send WhatsApp message.",
+			Message:       "Cook phone number not found. Add it in cook profile to open WhatsApp.",
 			ItemsIncluded: getItemNames(itemsToInclude),
 			Error:         "missing_phone_number",
 		}, nil
 	}
 
-	// Send WhatsApp message
-	messageSID, err := whatsappService.SendMessage(cookProfile.PhoneNumber, message)
+	message := buildPreMarketMessage(itemsToInclude, req.Language)
+	waURL, err := BuildWaMeURL(cookProfile.PhoneNumber, message)
 	if err != nil {
 		return &PreMarketPingResponse{
 			Sent:          false,
-			Message:       fmt.Sprintf("Failed to send WhatsApp message: %v", err),
+			Message:       fmt.Sprintf("Could not build WhatsApp link: %v", err),
 			ItemsIncluded: getItemNames(itemsToInclude),
 			Error:         err.Error(),
 		}, nil
 	}
 
-	// Log the message SID for tracking
-	log.Printf("Pre-market ping sent successfully. Message SID: %s", messageSID)
-
 	return &PreMarketPingResponse{
 		Sent:          true,
-		Message:       "Pre-market ping sent successfully to cook.",
+		Message:       "Open WhatsApp to send this pre-market reminder to your cook.",
+		WhatsappURL:   waURL,
 		ItemsIncluded: getItemNames(itemsToInclude),
 	}, nil
 }
@@ -522,7 +518,7 @@ func buildPreMarketMessage(items []LowStockItem, language string) string {
 // getCookProfile retrieves the cook profile from database
 func (s *ProcurementService) getCookProfile() (*models.CookProfile, error) {
 	query := `
-		SELECT cook_id, dishes_known, preferred_lang, phone_number, created_at, updated_at
+		SELECT cook_id, COALESCE(cook_name, ''), dishes_known, preferred_lang, phone_number, created_at, updated_at
 		FROM cook_profile
 		LIMIT 1
 	`
@@ -534,6 +530,7 @@ func (s *ProcurementService) getCookProfile() (*models.CookProfile, error) {
 
 	err := row.Scan(
 		&profile.CookID,
+		&profile.CookName,
 		&dishesKnownStr,
 		&profile.PreferredLang,
 		&phoneNumber,

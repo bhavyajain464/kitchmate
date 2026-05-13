@@ -8,6 +8,8 @@ ALTER TABLE user_prefs ADD COLUMN IF NOT EXISTS spice_level TEXT DEFAULT 'medium
 ALTER TABLE user_prefs ADD COLUMN IF NOT EXISTS cooking_skill TEXT DEFAULT 'intermediate';
 ALTER TABLE user_prefs ADD COLUMN IF NOT EXISTS onboarding_done BOOLEAN DEFAULT FALSE;
 
+ALTER TABLE cook_profile ADD COLUMN IF NOT EXISTS cook_name VARCHAR(255);
+
 CREATE TABLE IF NOT EXISTS user_memory (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     user_id UUID NOT NULL,

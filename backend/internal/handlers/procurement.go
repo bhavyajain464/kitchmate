@@ -69,8 +69,8 @@ func GetLowStockItemsHandler(db *sql.DB) http.HandlerFunc {
 	}
 }
 
-// SendPreMarketPingHandler sends a WhatsApp message to cook about low stock items
-func SendPreMarketPingHandler(db *sql.DB, whatsappService *services.WhatsAppService) http.HandlerFunc {
+// SendPreMarketPingHandler returns a WhatsApp compose link for a pre-market reminder to the cook.
+func SendPreMarketPingHandler(db *sql.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
 			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
@@ -85,7 +85,7 @@ func SendPreMarketPingHandler(db *sql.DB, whatsappService *services.WhatsAppServ
 
 		procurementService := services.NewProcurementService(db)
 
-		response, err := procurementService.SendPreMarketPing(whatsappService, req)
+		response, err := procurementService.SendPreMarketPing(req)
 		if err != nil {
 			http.Error(w, fmt.Sprintf("Failed to send pre-market ping: %v", err), http.StatusInternalServerError)
 			return

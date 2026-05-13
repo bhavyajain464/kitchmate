@@ -168,7 +168,6 @@ export async function scanBillUpload(imageUri: string): Promise<ScanResult> {
 export async function sendWhatsAppMessage(
   phoneNumber: string,
   message: string,
-  language: string = 'hindi',
 ): Promise<WhatsAppResult> {
   const res = await authFetch(`${API_BASE_URL}/whatsapp/send`, {
     method: 'POST',
@@ -176,8 +175,6 @@ export async function sendWhatsAppMessage(
     body: JSON.stringify({
       phone_number: phoneNumber,
       message,
-      language,
-      test_mode: true,
     }),
   });
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
@@ -188,7 +185,7 @@ export async function sendMealSuggestion(
   mealName: string,
   ingredients: Array<{ name: string; quantity: number; unit: string }>,
   cookingTime: number,
-  language: string = 'hindi',
+  opts?: { instructions?: string },
 ): Promise<WhatsAppResult> {
   const res = await authFetch(`${API_BASE_URL}/whatsapp/send-meal-suggestion`, {
     method: 'POST',
@@ -197,8 +194,7 @@ export async function sendMealSuggestion(
       meal_name: mealName,
       ingredients,
       cooking_time: cookingTime,
-      language,
-      test_mode: true,
+      instructions: opts?.instructions?.trim() || undefined,
     }),
   });
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
@@ -206,13 +202,12 @@ export async function sendMealSuggestion(
 }
 
 export async function sendDailyMenu(
-  meals: Array<{ name: string; cooking_time: number }>,
-  language: string = 'hindi',
+  menu: Array<{ meal_name: string; meal_time?: string }>,
 ): Promise<WhatsAppResult> {
   const res = await authFetch(`${API_BASE_URL}/whatsapp/send-daily-menu`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ meals, language, test_mode: true }),
+    body: JSON.stringify({ menu }),
   });
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
   return res.json();
@@ -374,6 +369,7 @@ export async function fetchCookProfile(): Promise<CookProfile> {
 }
 
 export async function updateCookProfile(profile: {
+  cook_name?: string;
   dishes_known: string[];
   preferred_lang: string;
   phone_number?: string;

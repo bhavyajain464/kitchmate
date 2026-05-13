@@ -1,6 +1,7 @@
 package services
 
 type CookProfileData struct {
+	CookName      string   `json:"cook_name"`
 	DishesKnown   []string `json:"dishes_known"`
 	PreferredLang string   `json:"preferred_lang"`
 }
