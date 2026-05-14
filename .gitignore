@@ -2,6 +2,8 @@
 .env
 .env.*
 !.env.example
+prod.env
+*.prod.env
 
 # Node
 node_modules/
