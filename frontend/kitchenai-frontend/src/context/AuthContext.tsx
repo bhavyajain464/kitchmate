@@ -5,15 +5,28 @@ import { GoogleSignin } from '@react-native-google-signin/google-signin';
 import { AuthUser } from '../types';
 import { googleLogin, logoutApi, setAuthToken, setOnUnauthorized } from '../services/api';
 
-function getRequiredEnv(name: 'EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID' | 'EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID' | 'EXPO_PUBLIC_GOOGLE_ANDROID_CLIENT_ID') {
-  const value = process.env[name]?.trim();
-  if (!value) {
+function getRequiredEnv(value: string | undefined, name: 'EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID' | 'EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID' | 'EXPO_PUBLIC_GOOGLE_ANDROID_CLIENT_ID') {
+  const trimmedValue = value?.trim();
+  if (!trimmedValue) {
     throw new Error(`Missing required env var: ${name}`);
   }
-  return value;
+  return trimmedValue;
 }
 
-const GOOGLE_WEB_CLIENT_ID = getRequiredEnv('EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID');
+const GOOGLE_WEB_CLIENT_ID = getRequiredEnv(
+  process.env.EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID,
+  'EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID'
+);
+
+const GOOGLE_IOS_CLIENT_ID = getRequiredEnv(
+  process.env.EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID,
+  'EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID'
+);
+
+const GOOGLE_ANDROID_CLIENT_ID = getRequiredEnv(
+  process.env.EXPO_PUBLIC_GOOGLE_ANDROID_CLIENT_ID,
+  'EXPO_PUBLIC_GOOGLE_ANDROID_CLIENT_ID'
+);
 
 interface AuthContextType {
   user: AuthUser | null;
@@ -258,7 +271,7 @@ function useNativeAuthRequest(onIdToken: (idToken: string) => void) {
   useEffect(() => {
     GoogleSignin.configure({
       webClientId: GOOGLE_WEB_CLIENT_ID,
-      iosClientId: Platform.OS === 'ios' ? getRequiredEnv('EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID') : undefined,
+      iosClientId: Platform.OS === 'ios' ? GOOGLE_IOS_CLIENT_ID : undefined,
       offlineAccess: false,
       profileImageSize: 120,
     });
