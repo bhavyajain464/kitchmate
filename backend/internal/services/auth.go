@@ -24,7 +24,7 @@ import (
 
 type AuthService struct {
 	db                 *sql.DB
-	googleClientID     string
+	googleClientIDs    map[string]struct{}
 	sessionTokenSecret string
 	sessionDuration    time.Duration
 	httpClient         *http.Client
@@ -61,10 +61,20 @@ type AuthAccessMetadata struct {
 func NewAuthService(db *sql.DB, cfg *config.Config) *AuthService {
 	// Default session duration: 30 days
 	duration := 30 * 24 * time.Hour
+	googleClientIDs := make(map[string]struct{})
+	for _, id := range []string{
+		cfg.GoogleWebClientID,
+		cfg.GoogleIOSClientID,
+		cfg.GoogleAndroidClientID,
+	} {
+		if id = strings.TrimSpace(id); id != "" {
+			googleClientIDs[id] = struct{}{}
+		}
+	}
 
 	return &AuthService{
 		db:                 db,
-		googleClientID:     strings.TrimSpace(cfg.GoogleClientID),
+		googleClientIDs:    googleClientIDs,
 		sessionTokenSecret: cfg.SessionTokenSecret,
 		sessionDuration:    duration,
 		httpClient: &http.Client{
@@ -172,16 +182,8 @@ func (s *AuthService) Logout(token string) error {
 }
 
 func (s *AuthService) verifyGoogleIDToken(ctx context.Context, idToken string) (*googleTokenInfoResponse, error) {
-	if s.googleClientID == "" {
-		// In development, allow mock verification
-		return &googleTokenInfoResponse{
-			Sub:           "mock-google-id",
-			Email:         "test@example.com",
-			EmailVerified: "true",
-			Name:          "Test User",
-			Picture:       "",
-			Aud:           "mock-client-id",
-		}, nil
+	if len(s.googleClientIDs) == 0 {
+		return nil, fmt.Errorf("google auth is not configured")
 	}
 
 	// Verify token with Google
@@ -207,8 +209,11 @@ func (s *AuthService) verifyGoogleIDToken(ctx context.Context, idToken string) (
 		return nil, err
 	}
 
-	// Verify audience matches our client ID
-	if tokenInfo.Aud != s.googleClientID {
+	if tokenInfo.EmailVerified != "true" {
+		return nil, fmt.Errorf("email not verified")
+	}
+
+	if _, ok := s.googleClientIDs[tokenInfo.Aud]; !ok {
 		return nil, fmt.Errorf("invalid audience")
 	}
 

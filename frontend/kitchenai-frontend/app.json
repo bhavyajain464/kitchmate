@@ -18,7 +18,8 @@
       "bundleIdentifier": "com.kitchenai.app",
       "infoPlist": {
         "NSCameraUsageDescription": "Kitchen AI needs camera access to scan grocery bills.",
-        "NSPhotoLibraryUsageDescription": "Kitchen AI needs photo library access to select grocery bill images."
+        "NSPhotoLibraryUsageDescription": "Kitchen AI needs photo library access to select grocery bill images.",
+        "ITSAppUsesNonExemptEncryption": false
       }
     },
     "android": {
@@ -30,8 +31,9 @@
       "predictiveBackGestureEnabled": false,
       "package": "com.kitchenai.app",
       "permissions": [
-        "CAMERA",
-        "READ_EXTERNAL_STORAGE"
+        "android.permission.CAMERA",
+        "android.permission.READ_EXTERNAL_STORAGE",
+        "android.permission.RECORD_AUDIO"
       ]
     },
     "web": {
@@ -39,7 +41,18 @@
       "bundler": "metro"
     },
     "plugins": [
-      "expo-image-picker"
-    ]
+      "expo-image-picker",
+      [
+        "@react-native-google-signin/google-signin",
+        {
+          "iosUrlScheme": "com.googleusercontent.apps.208103249970-5j9v2282v0f9r0d8859shqmnurpc93lp"
+        }
+      ]
+    ],
+    "extra": {
+      "eas": {
+        "projectId": "6302f988-f489-4728-abed-1a067f024962"
+      }
+    }
   }
 }

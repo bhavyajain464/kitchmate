@@ -7,21 +7,23 @@ import (
 )
 
 type Config struct {
-	Port                string
-	DatabaseURL         string
-	Environment         string
-	GeminiAPIKey        string
-	GeminiModel         string
-	GroqAPIKey          string
-	GroqModel           string
-	GroqVisionModel     string
+	Port            string
+	DatabaseURL     string
+	Environment     string
+	GeminiAPIKey    string
+	GeminiModel     string
+	GroqAPIKey      string
+	GroqModel       string
+	GroqVisionModel string
 	// LLMProvider is "gemini" or "groq" (default groq). One provider per request — no cross-provider fallback.
-	LLMProvider string
-	GoogleTranslateKey  string
-	GoogleClientID      string
-	SessionTokenSecret  string
-	KafkaBrokers        string
-	KafkaTopicShelfLife string
+	LLMProvider           string
+	GoogleTranslateKey    string
+	GoogleWebClientID     string
+	GoogleIOSClientID     string
+	GoogleAndroidClientID string
+	SessionTokenSecret    string
+	KafkaBrokers          string
+	KafkaTopicShelfLife   string
 
 	// Kafka throughput / concurrency tuning (defaults favor minimal broker & CPU load).
 	KafkaWriterBatchSize             int
@@ -64,7 +66,9 @@ func Load() (*Config, error) {
 		llmProvider = "groq"
 	}
 	googleTranslateKey := getEnv("GOOGLE_TRANSLATE_KEY", "")
-	googleClientID := getEnv("GOOGLE_CLIENT_ID", "")
+	googleWebClientID := getEnv("GOOGLE_WEB_CLIENT_ID", "")
+	googleIOSClientID := getEnv("GOOGLE_IOS_CLIENT_ID", "")
+	googleAndroidClientID := getEnv("GOOGLE_ANDROID_CLIENT_ID", "")
 	sessionTokenSecret := getEnv("SESSION_TOKEN_SECRET", "kitchenai-dev-session-secret")
 	kafkaBrokers := getEnv("KAFKA_BROKERS", "localhost:9092")
 	if !getEnvBool("KAFKA_ENABLED", true) {
@@ -176,7 +180,9 @@ func Load() (*Config, error) {
 		GroqVisionModel:                    groqVisionModel,
 		LLMProvider:                        llmProvider,
 		GoogleTranslateKey:                 googleTranslateKey,
-		GoogleClientID:                     googleClientID,
+		GoogleWebClientID:                  googleWebClientID,
+		GoogleIOSClientID:                  googleIOSClientID,
+		GoogleAndroidClientID:              googleAndroidClientID,
 		SessionTokenSecret:                 sessionTokenSecret,
 		KafkaBrokers:                       kafkaBrokers,
 		KafkaTopicShelfLife:                kafkaTopicShelfLife,

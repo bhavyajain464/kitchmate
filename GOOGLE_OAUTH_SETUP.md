@@ -66,6 +66,16 @@ EXPO_PUBLIC_IOS_REDIRECT_URI=exp://<your-lan-ip>:8082
 EXPO_PUBLIC_ANDROID_REDIRECT_URI=exp://<your-lan-ip>:8082
 ```
 
+Update `backend/.env` with the same first-party Google OAuth clients so the API accepts ID tokens from web, iOS, and Android:
+
+```env
+GOOGLE_WEB_CLIENT_ID=YOUR_WEB_CLIENT_ID_HERE
+GOOGLE_IOS_CLIENT_ID=YOUR_IOS_CLIENT_ID_HERE
+GOOGLE_ANDROID_CLIENT_ID=YOUR_ANDROID_CLIENT_ID_HERE
+# Optional legacy fallback for older deployments:
+GOOGLE_CLIENT_ID=YOUR_WEB_CLIENT_ID_HERE
+```
+
 ## Step 3: Update App Configuration
 
 Update `frontend/kitchenai-frontend/app.json` with proper bundle ID and package name:

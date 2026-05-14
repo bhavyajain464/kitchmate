@@ -15,6 +15,7 @@ import {
   Badge,
   IconButton,
 } from 'react-native-paper';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useAuth } from '../context/AuthContext';
 import * as api from '../services/api';
 import { InventoryItem, ExpiringItem } from '../types';
@@ -39,6 +40,7 @@ function getDaysLeft(expiry: string | undefined): number | null {
 
 export function HomeScreen({ navigation }: any) {
   const { user } = useAuth();
+  const insets = useSafeAreaInsets();
   const [inventory, setInventory] = useState<InventoryItem[]>([]);
   const [expiringItems, setExpiringItems] = useState<ExpiringItem[]>([]);
   const [expiredItems, setExpiredItems] = useState<ExpiringItem[]>([]);
@@ -81,12 +83,15 @@ export function HomeScreen({ navigation }: any) {
   return (
     <ScrollView
       style={styles.container}
-      contentContainerStyle={styles.scrollContent}
+      contentContainerStyle={[
+        styles.scrollContent,
+        { paddingBottom: Math.max(insets.bottom, 16) + 84 },
+      ]}
       refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
       showsVerticalScrollIndicator={false}
     >
       {/* ── Hero Header ──────────────────────────────────── */}
-      <View style={styles.header}>
+      <View style={[styles.header, { paddingTop: insets.top + 18 }]}>
         <View style={styles.headerTop}>
           <View style={styles.headerText}>
             <Text variant="bodyMedium" style={styles.greeting}>{getGreeting()},</Text>
@@ -297,11 +302,10 @@ const styles = StyleSheet.create({
   // Header
   header: {
     backgroundColor: '#4CAF50',
-    paddingHorizontal: 20,
-    paddingTop: 16,
-    paddingBottom: 24,
-    borderBottomLeftRadius: 28,
-    borderBottomRightRadius: 28,
+    paddingHorizontal: 24,
+    paddingBottom: 28,
+    borderBottomLeftRadius: 32,
+    borderBottomRightRadius: 32,
   },
   headerTop: {
     flexDirection: 'row',
@@ -313,29 +317,30 @@ const styles = StyleSheet.create({
   },
   greeting: {
     color: 'rgba(255,255,255,0.85)',
-    fontSize: 14,
+    fontSize: 15,
   },
   heroName: {
     color: '#fff',
     fontWeight: '800',
-    fontSize: 26,
-    marginTop: 2,
+    fontSize: 28,
+    marginTop: 6,
   },
   avatar: {
     backgroundColor: 'rgba(255,255,255,0.25)',
   },
   pillRow: {
     flexDirection: 'row',
-    marginTop: 18,
-    gap: 8,
+    marginTop: 22,
+    gap: 10,
+    flexWrap: 'wrap',
   },
   pill: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 6,
     backgroundColor: 'rgba(255,255,255,0.2)',
-    paddingHorizontal: 14,
-    paddingVertical: 8,
+    paddingHorizontal: 15,
+    paddingVertical: 10,
     borderRadius: 20,
   },
   pillWarn: {
@@ -357,40 +362,40 @@ const styles = StyleSheet.create({
   // Sections
   sectionTitle: {
     fontWeight: '700',
-    marginLeft: 20,
-    marginTop: 20,
-    marginBottom: 4,
+    marginLeft: 24,
+    marginTop: 24,
+    marginBottom: 6,
     color: '#333',
   },
   sectionHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    paddingRight: 20,
+    paddingRight: 24,
   },
   seeAll: {
     color: '#4CAF50',
     fontWeight: '600',
     fontSize: 13,
-    marginTop: 20,
+    marginTop: 24,
   },
 
   // Action grid
   grid: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    paddingHorizontal: 14,
-    marginTop: 8,
+    paddingHorizontal: 18,
+    marginTop: 10,
     gap: 0,
   },
   actionCard: {
     width: '50%',
-    padding: 6,
+    padding: 7,
   },
   actionSurface: {
-    borderRadius: 18,
-    padding: 16,
-    minHeight: 120,
+    borderRadius: 20,
+    padding: 18,
+    minHeight: 132,
     justifyContent: 'center',
   },
   actionIconWrap: {
@@ -406,12 +411,12 @@ const styles = StyleSheet.create({
   },
   actionLabel: {
     fontWeight: '700',
-    fontSize: 15,
+    fontSize: 16,
   },
   actionSub: {
     color: '#888',
-    fontSize: 12,
-    marginTop: 2,
+    fontSize: 13,
+    marginTop: 4,
   },
 
   // Expiring horizontal
@@ -419,8 +424,8 @@ const styles = StyleSheet.create({
     marginTop: 8,
   },
   hScrollContent: {
-    paddingHorizontal: 20,
-    gap: 10,
+    paddingHorizontal: 24,
+    gap: 12,
   },
   expiryCard: {
     width: 130,
@@ -457,7 +462,7 @@ const styles = StyleSheet.create({
   expiredBanner: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginHorizontal: 20,
+    marginHorizontal: 24,
     marginTop: 16,
     backgroundColor: '#FFEBEE',
     borderRadius: 16,
@@ -472,9 +477,9 @@ const styles = StyleSheet.create({
 
   // Recent items
   recentList: {
-    paddingHorizontal: 20,
-    marginTop: 8,
-    gap: 6,
+    paddingHorizontal: 24,
+    marginTop: 10,
+    gap: 8,
   },
   recentItem: {
     flexDirection: 'row',
@@ -520,7 +525,7 @@ const styles = StyleSheet.create({
 
   // Empty state
   emptyCard: {
-    marginHorizontal: 20,
+    marginHorizontal: 24,
     marginTop: 8,
     borderRadius: 18,
     padding: 28,
@@ -538,6 +543,6 @@ const styles = StyleSheet.create({
   },
 
   bottomSpacer: {
-    height: 24,
+    height: 8,
   },
 });

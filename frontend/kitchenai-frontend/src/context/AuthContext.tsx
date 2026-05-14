@@ -1,12 +1,19 @@
 import React, { createContext, useContext, useState, useEffect, useCallback, useRef } from 'react';
 import { Platform, Alert } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { GoogleSignin } from '@react-native-google-signin/google-signin';
 import { AuthUser } from '../types';
 import { googleLogin, logoutApi, setAuthToken, setOnUnauthorized } from '../services/api';
 
-const GOOGLE_WEB_CLIENT_ID = process.env.EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID!;
-const GOOGLE_IOS_CLIENT_ID = process.env.EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID!;
-const GOOGLE_ANDROID_CLIENT_ID = process.env.EXPO_PUBLIC_GOOGLE_ANDROID_CLIENT_ID!;
+function getRequiredEnv(name: 'EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID' | 'EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID' | 'EXPO_PUBLIC_GOOGLE_ANDROID_CLIENT_ID') {
+  const value = process.env[name]?.trim();
+  if (!value) {
+    throw new Error(`Missing required env var: ${name}`);
+  }
+  return value;
+}
+
+const GOOGLE_WEB_CLIENT_ID = getRequiredEnv('EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID');
 
 interface AuthContextType {
   user: AuthUser | null;
@@ -79,36 +86,6 @@ function useGoogleIdentityServices(onCredential: (credential: string) => void) {
   }, []);
 
   return { buttonRef, ready };
-}
-
-// ─── Native: expo-auth-session ───────────────────────────────
-
-function useNativeGoogleAuth(onIdToken: (idToken: string) => void) {
-  const [ready, setReady] = useState(false);
-  const requestRef = useRef<any>(null);
-  const promptAsyncRef = useRef<(() => Promise<any>) | null>(null);
-
-  useEffect(() => {
-    if (Platform.OS === 'web') return;
-
-    let mounted = true;
-
-    (async () => {
-      const WebBrowser = await import('expo-web-browser');
-      const Google = await import('expo-auth-session/providers/google');
-
-      WebBrowser.maybeCompleteAuthSession();
-
-      // We can't use hooks from inside useEffect, so we set up the native
-      // auth imperatively on mount. The hook-based approach only works at
-      // the top level, so for native we'll trigger promptAsync directly.
-      setReady(true);
-    })();
-
-    return () => { mounted = false; };
-  }, []);
-
-  return { ready };
 }
 
 // ─── Provider ────────────────────────────────────────────────
@@ -196,7 +173,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const signIn = useCallback(async () => {
     if (Platform.OS === 'web') {
-      // GIS handles sign-in via the rendered button; this is a fallback
+      // GIS handles sign-in via the rendered button; this triggers the prompt explicitly.
       const google = (window as any).google;
       if (google?.accounts?.id) {
         google.accounts.id.prompt();
@@ -272,32 +249,42 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 function useNativeAuthRequest(onIdToken: (idToken: string) => void) {
   const onIdTokenRef = useRef(onIdToken);
   onIdTokenRef.current = onIdToken;
+  const [ready, setReady] = useState(false);
 
   if (Platform.OS === 'web') {
     return { ready: false, promptAsync: () => {} };
   }
 
-  // These imports are safe on native; on web this branch is never reached
-  const WebBrowser = require('expo-web-browser');
-  const Google = require('expo-auth-session/providers/google');
-
-  WebBrowser.maybeCompleteAuthSession();
-
-  const [request, response, promptAsync] = Google.useAuthRequest({
-    clientId: GOOGLE_WEB_CLIENT_ID,
-    iosClientId: GOOGLE_IOS_CLIENT_ID,
-    androidClientId: GOOGLE_ANDROID_CLIENT_ID,
-    webClientId: GOOGLE_WEB_CLIENT_ID,
-  });
-
   useEffect(() => {
-    if (response?.type === 'success') {
-      const { authentication } = response;
-      if (authentication?.idToken) {
-        onIdTokenRef.current(authentication.idToken);
-      }
-    }
-  }, [response]);
+    GoogleSignin.configure({
+      webClientId: GOOGLE_WEB_CLIENT_ID,
+      iosClientId: Platform.OS === 'ios' ? getRequiredEnv('EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID') : undefined,
+      offlineAccess: false,
+      profileImageSize: 120,
+    });
+    setReady(true);
+  }, []);
 
-  return { ready: !!request, promptAsync };
+  const promptAsync = useCallback(async () => {
+    if (Platform.OS === 'android') {
+      await GoogleSignin.hasPlayServices({ showPlayServicesUpdateDialog: true });
+    }
+
+    const response = await GoogleSignin.signIn();
+    if (response.type !== 'success') {
+      return;
+    }
+
+    const idToken = response.data.idToken;
+    if (!idToken) {
+      throw new Error('Google sign-in did not return an ID token');
+    }
+
+    await onIdTokenRef.current(idToken);
+  }, []);
+
+  return {
+    ready,
+    promptAsync: () => promptAsync(),
+  };
 }
