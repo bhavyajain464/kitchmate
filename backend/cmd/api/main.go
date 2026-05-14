@@ -44,6 +44,9 @@ func main() {
 	if err != nil {
 		log.Fatalf("Failed to load config: %v", err)
 	}
+	if err := cfg.ValidateKafkaAuth(); err != nil {
+		log.Fatalf("Invalid Kafka config: %v", err)
+	}
 
 	database, err := db.InitDB(
 		cfg.DatabaseURL,

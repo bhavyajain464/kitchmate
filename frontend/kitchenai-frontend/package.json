@@ -3,14 +3,11 @@
   "version": "1.0.0",
   "main": "index.ts",
   "scripts": {
-    "env:web": "cp .env.web .env",
-    "env:ios": "cp .env.ios .env",
-    "env:android": "cp .env.android .env",
-    "start": "expo start",
-    "android": "expo run:android",
-    "ios": "expo run:ios",
-    "web": "expo start --web",
-    "build:web": "expo export --platform web"
+    "start": "DOTENV_CONFIG_PATH=prod.env node -r dotenv/config ./node_modules/expo/bin/cli start",
+    "android": "DOTENV_CONFIG_PATH=prod.env node -r dotenv/config ./node_modules/expo/bin/cli run:android",
+    "ios": "DOTENV_CONFIG_PATH=prod.env node -r dotenv/config ./node_modules/expo/bin/cli run:ios",
+    "web": "DOTENV_CONFIG_PATH=prod.env node -r dotenv/config ./node_modules/expo/bin/cli start --web",
+    "build:web": "DOTENV_CONFIG_PATH=prod.env node -r dotenv/config ./node_modules/expo/bin/cli export --platform web"
   },
   "dependencies": {
     "@react-native-async-storage/async-storage": "^2.2.0",

@@ -31,13 +31,20 @@ func StartShelfLifeConsumer(db *sql.DB, cfg *config.Config) {
 	}
 
 	go func() {
-		ensureTopicExists(brokers, topic, cfg.KafkaTopicPartitions)
+		dialer, err := newDialer(cfg)
+		if err != nil {
+			log.Printf("[kafka-consumer] disabled: %v", err)
+			return
+		}
+
+		ensureTopicExists(dialer, brokers, topic, cfg.KafkaTopicPartitions)
 
 		readBackoffMin := time.Duration(cfg.KafkaConsumerReadBackoffMinMs) * time.Millisecond
 		readBackoffMax := time.Duration(cfg.KafkaConsumerReadBackoffMaxMs) * time.Millisecond
 		errBackoff := time.Duration(cfg.KafkaConsumerErrorBackoffSec) * time.Second
 
 		reader := kafkago.NewReader(kafkago.ReaderConfig{
+			Dialer:                dialer,
 			Brokers:               brokers,
 			Topic:                 topic,
 			GroupID:               "shelflife-group",
@@ -60,8 +67,8 @@ func StartShelfLifeConsumer(db *sql.DB, cfg *config.Config) {
 			ErrorLogger:           kafkago.LoggerFunc(log.Printf),
 		})
 
-		log.Printf("[kafka-consumer] listening topic=%s group=shelflife-group (maxBytes=%d maxWait=%s commitEvery=%s readBackoff=%s-%s)",
-			topic, cfg.KafkaConsumerMaxBytes,
+		log.Printf("[kafka-consumer] listening topic=%s group=shelflife-group sasl=%v tls=%v (maxBytes=%d maxWait=%s commitEvery=%s readBackoff=%s-%s)",
+			topic, cfg.KafkaSASLEnabled, cfg.KafkaTLSEnabled, cfg.KafkaConsumerMaxBytes,
 			time.Duration(cfg.KafkaConsumerMaxWaitSec)*time.Second,
 			time.Duration(cfg.KafkaConsumerCommitIntervalSec)*time.Second,
 			readBackoffMin, readBackoffMax)
@@ -79,11 +86,10 @@ func StartShelfLifeConsumer(db *sql.DB, cfg *config.Config) {
 	log.Printf("[kafka-consumer] starting in background for topic %s", topic)
 }
 
-func ensureTopicExists(brokers []string, topic string, numPartitions int) {
+func ensureTopicExists(dialer *kafkago.Dialer, brokers []string, topic string, numPartitions int) {
 	if numPartitions < 1 {
 		numPartitions = 1
 	}
-	dialer := &kafkago.Dialer{Timeout: 15 * time.Second}
 
 	conn, err := dialer.Dial("tcp", brokers[0])
 	if err != nil {

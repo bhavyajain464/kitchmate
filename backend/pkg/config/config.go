@@ -1,6 +1,7 @@
 package config
 
 import (
+	"fmt"
 	"os"
 	"strconv"
 	"strings"
@@ -24,6 +25,12 @@ type Config struct {
 	SessionTokenSecret    string
 	KafkaBrokers          string
 	KafkaTopicShelfLife   string
+	KafkaSASLEnabled      bool
+	KafkaSASLMechanism    string
+	KafkaUsername         string
+	KafkaPassword         string
+	KafkaTLSEnabled       bool
+	KafkaCAFile           string
 
 	// Kafka throughput / concurrency tuning (defaults favor minimal broker & CPU load).
 	KafkaWriterBatchSize             int
@@ -75,6 +82,12 @@ func Load() (*Config, error) {
 		kafkaBrokers = ""
 	}
 	kafkaTopicShelfLife := getEnv("KAFKA_TOPIC_SHELFLIFE", "shelf-life-estimate")
+	kafkaSASLEnabled := getEnvBool("KAFKA_SASL_ENABLED", false)
+	kafkaSASLMechanism := strings.ToUpper(strings.TrimSpace(getEnv("KAFKA_SASL_MECHANISM", "PLAIN")))
+	kafkaUsername := getEnv("KAFKA_USERNAME", "")
+	kafkaPassword := getEnv("KAFKA_PASSWORD", "")
+	kafkaTLSEnabled := getEnvBool("KAFKA_TLS_ENABLED", false)
+	kafkaCAFile := getEnv("KAFKA_CA_FILE", "")
 
 	// Producer: small batches, long flush window, synchronous writes by default (no extra async fire-and-forget).
 	kafkaWriterBatchSize := getEnvInt("KAFKA_WRITER_BATCH_SIZE", 1)
@@ -186,6 +199,12 @@ func Load() (*Config, error) {
 		SessionTokenSecret:                 sessionTokenSecret,
 		KafkaBrokers:                       kafkaBrokers,
 		KafkaTopicShelfLife:                kafkaTopicShelfLife,
+		KafkaSASLEnabled:                   kafkaSASLEnabled,
+		KafkaSASLMechanism:                 kafkaSASLMechanism,
+		KafkaUsername:                      kafkaUsername,
+		KafkaPassword:                      kafkaPassword,
+		KafkaTLSEnabled:                    kafkaTLSEnabled,
+		KafkaCAFile:                        kafkaCAFile,
 		KafkaWriterBatchSize:               kafkaWriterBatchSize,
 		KafkaWriterBatchBytes:              kafkaWriterBatchBytes,
 		KafkaWriterBatchTimeoutSec:         kafkaWriterBatchTimeoutSec,
@@ -209,6 +228,27 @@ func Load() (*Config, error) {
 		KafkaConsumerGeminiBatchSize:       kafkaConsumerGeminiBatch,
 		KafkaConsumerPauseBetweenBatchesMs: kafkaConsumerPauseBetweenBatchesMs,
 	}, nil
+}
+
+func (c *Config) ValidateKafkaAuth() error {
+	if c == nil || strings.TrimSpace(c.KafkaBrokers) == "" {
+		return nil
+	}
+	if c.KafkaSASLEnabled {
+		if c.KafkaSASLMechanism != "PLAIN" {
+			return fmt.Errorf("unsupported KAFKA_SASL_MECHANISM %q", c.KafkaSASLMechanism)
+		}
+		if strings.TrimSpace(c.KafkaUsername) == "" {
+			return fmt.Errorf("KAFKA_SASL_ENABLED=true but KAFKA_USERNAME is empty")
+		}
+		if strings.TrimSpace(c.KafkaPassword) == "" {
+			return fmt.Errorf("KAFKA_SASL_ENABLED=true but KAFKA_PASSWORD is empty")
+		}
+	}
+	if c.KafkaTLSEnabled && strings.TrimSpace(c.KafkaCAFile) == "" {
+		return fmt.Errorf("KAFKA_TLS_ENABLED=true but KAFKA_CA_FILE is empty")
+	}
+	return nil
 }
 
 func getEnv(key, defaultValue string) string {

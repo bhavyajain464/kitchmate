@@ -7,12 +7,19 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
+	"regexp"
 	"strings"
 	"time"
 
 	"kitchenai-backend/pkg/config"
 )
+
+// shelfLifeObjectPattern salvages individual `{"name":..., "shelf_life_days":...}`
+// objects out of an otherwise-malformed LLM response (e.g. when one nonsense
+// item makes the LLM emit prose instead of pure JSON for that slot).
+var shelfLifeObjectPattern = regexp.MustCompile(`\{[^{}]*"name"\s*:\s*"[^"]+"[^{}]*"shelf_life_days"\s*:\s*-?\d+[^{}]*\}`)
 
 const groqChatURL = "https://api.groq.com/openai/v1/chat/completions"
 
@@ -189,19 +196,55 @@ func parseShelfLifeJSON(responseText string) ([]ShelfLifeEstimate, error) {
 	}
 	cleaned = strings.TrimSpace(cleaned)
 
+	// Strict parse over the whole response.
 	var estimates []ShelfLifeEstimate
-	if err := json.Unmarshal([]byte(cleaned), &estimates); err != nil {
-		start := strings.Index(cleaned, "[")
-		end := strings.LastIndex(cleaned, "]")
-		if start != -1 && end != -1 && end > start {
-			if err2 := json.Unmarshal([]byte(cleaned[start:end+1]), &estimates); err2 != nil {
-				return nil, fmt.Errorf("failed to parse shelf life response: %w", err2)
-			}
-		} else {
-			return nil, fmt.Errorf("failed to parse shelf life response: %w", err)
+	if err := json.Unmarshal([]byte(cleaned), &estimates); err == nil {
+		return estimates, nil
+	}
+
+	// Strict parse over the substring between the first `[` and last `]`.
+	if start, end := strings.Index(cleaned, "["), strings.LastIndex(cleaned, "]"); start != -1 && end > start {
+		if err := json.Unmarshal([]byte(cleaned[start:end+1]), &estimates); err == nil {
+			return estimates, nil
 		}
 	}
-	return estimates, nil
+
+	// Salvage path: extract any well-formed objects so a single bad element
+	// (or interleaved prose) doesn't discard the whole batch.
+	salvaged := salvageShelfLifeObjects(cleaned)
+	if len(salvaged) > 0 {
+		preview := cleaned
+		if len(preview) > 240 {
+			preview = preview[:240] + "…"
+		}
+		log.Printf("[shelf-life] partial parse: recovered %d object(s); raw=%q", len(salvaged), preview)
+		return salvaged, nil
+	}
+
+	preview := cleaned
+	if len(preview) > 240 {
+		preview = preview[:240] + "…"
+	}
+	return nil, fmt.Errorf("failed to parse shelf life response: no JSON objects found; raw=%q", preview)
+}
+
+func salvageShelfLifeObjects(s string) []ShelfLifeEstimate {
+	matches := shelfLifeObjectPattern.FindAllString(s, -1)
+	if len(matches) == 0 {
+		return nil
+	}
+	out := make([]ShelfLifeEstimate, 0, len(matches))
+	for _, m := range matches {
+		var e ShelfLifeEstimate
+		if err := json.Unmarshal([]byte(m), &e); err != nil {
+			continue
+		}
+		if strings.TrimSpace(e.Name) == "" || e.ShelfLifeDays <= 0 {
+			continue
+		}
+		out = append(out, e)
+	}
+	return out
 }
 
 // billScanGroqUserPrompt matches the Gemini bill-scan instructions (JSON array output).

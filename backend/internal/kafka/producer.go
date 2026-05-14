@@ -40,8 +40,14 @@ func NewProducer(cfg *config.Config) *Producer {
 	}
 
 	batchTimeout := time.Duration(cfg.KafkaWriterBatchTimeoutSec) * time.Second
+	dialer, err := newDialer(cfg)
+	if err != nil {
+		log.Printf("[kafka-producer] disabled: %v", err)
+		return nil
+	}
 	w := &kafkago.Writer{
 		Addr:            kafkago.TCP(strings.Split(brokers, ",")...),
+		Transport:       &kafkago.Transport{TLS: dialer.TLS, SASL: dialer.SASLMechanism},
 		Topic:           topic,
 		Balancer:        &kafkago.LeastBytes{},
 		BatchSize:       cfg.KafkaWriterBatchSize,
@@ -57,8 +63,8 @@ func NewProducer(cfg *config.Config) *Producer {
 		Logger:          kafkago.LoggerFunc(func(msg string, a ...interface{}) {}),
 		ErrorLogger:     kafkago.LoggerFunc(log.Printf),
 	}
-	log.Printf("[kafka-producer] initialized topic=%s brokers=%s (batch=%d/%dB timeout=%s async=%v maxAttempts=%d)",
-		topic, brokers, cfg.KafkaWriterBatchSize, cfg.KafkaWriterBatchBytes, batchTimeout, cfg.KafkaWriterAsync, cfg.KafkaWriterMaxAttempts)
+	log.Printf("[kafka-producer] initialized topic=%s brokers=%s sasl=%v tls=%v (batch=%d/%dB timeout=%s async=%v maxAttempts=%d)",
+		topic, brokers, cfg.KafkaSASLEnabled, cfg.KafkaTLSEnabled, cfg.KafkaWriterBatchSize, cfg.KafkaWriterBatchBytes, batchTimeout, cfg.KafkaWriterAsync, cfg.KafkaWriterMaxAttempts)
 	return &Producer{writer: w, topic: topic}
 }
 

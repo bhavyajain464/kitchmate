@@ -44,3 +44,4 @@ ngrok.yml
 credentials.json
 service-account*.json
 .vercel
+.env*.local
