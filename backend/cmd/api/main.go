@@ -11,6 +11,7 @@ import (
 	"kitchenai-backend/internal/handlers"
 	kafkalib "kitchenai-backend/internal/kafka"
 	"kitchenai-backend/internal/middleware"
+	redislib "kitchenai-backend/internal/redis"
 	"kitchenai-backend/internal/services"
 	"kitchenai-backend/pkg/config"
 
@@ -62,6 +63,14 @@ func main() {
 
 	sqlDB := database.GetDB()
 
+	if err := handlers.EnsureCookedLogSchema(sqlDB); err != nil {
+		log.Printf("cooked_log schema ensure failed: %v", err)
+	}
+
+	redisClient := redislib.New(cfg)
+	defer redisClient.Close()
+	cookedLogSvc := services.NewCookedLogService(sqlDB, redisClient)
+
 	authService := services.NewAuthService(sqlDB, cfg)
 	authHandler := handlers.NewAuthHandler(authService)
 
@@ -88,7 +97,7 @@ func main() {
 	api.Handle("/inventory/expiring", middleware.RequireAuth(http.HandlerFunc(handlers.GetExpiringItems(sqlDB)))).Methods("GET", "OPTIONS")
 	api.Handle("/inventory/expired", middleware.RequireAuth(http.HandlerFunc(handlers.GetExpiredItems(sqlDB)))).Methods("GET", "OPTIONS")
 	api.Handle("/inventory/{id:[a-fA-F0-9-]+}", middleware.RequireAuth(http.HandlerFunc(handlers.GetInventoryItem(sqlDB)))).Methods("GET", "OPTIONS")
-	api.Handle("/inventory/{id:[a-fA-F0-9-]+}", middleware.RequireAuth(http.HandlerFunc(handlers.UpdateInventoryItem(sqlDB)))).Methods("PUT", "OPTIONS")
+	api.Handle("/inventory/{id:[a-fA-F0-9-]+}", middleware.RequireAuth(http.HandlerFunc(handlers.UpdateInventoryItem(sqlDB, kafkaProducer)))).Methods("PUT", "OPTIONS")
 	api.Handle("/inventory/{id:[a-fA-F0-9-]+}/expire", middleware.RequireAuth(http.HandlerFunc(handlers.ExpireInventoryItem(sqlDB)))).Methods("PATCH", "OPTIONS")
 	api.Handle("/inventory/{id:[a-fA-F0-9-]+}", middleware.RequireAuth(http.HandlerFunc(handlers.DeleteInventoryItem(sqlDB)))).Methods("DELETE", "OPTIONS")
 
@@ -116,14 +125,18 @@ func main() {
 	api.Handle("/bill/scan/test", middleware.RequireAuth(http.HandlerFunc(handlers.TestScanBill(sqlDB)))).Methods("GET", "OPTIONS")
 
 	// WhatsApp
-	api.Handle("/whatsapp/send", middleware.RequireAuth(http.HandlerFunc(handlers.SendWhatsAppMessage(sqlDB, cfg)))).Methods("POST", "OPTIONS")
-	api.Handle("/whatsapp/send-meal-suggestion", middleware.RequireAuth(http.HandlerFunc(handlers.SendMealSuggestionToCook(sqlDB, cfg)))).Methods("POST", "OPTIONS")
+	api.Handle("/whatsapp/send", middleware.RequireAuth(http.HandlerFunc(handlers.SendWhatsAppMessage(sqlDB, cfg, cookedLogSvc)))).Methods("POST", "OPTIONS")
+	api.Handle("/whatsapp/send-meal-suggestion", middleware.RequireAuth(http.HandlerFunc(handlers.SendMealSuggestionToCook(sqlDB, cfg, cookedLogSvc)))).Methods("POST", "OPTIONS")
 	api.Handle("/whatsapp/send-daily-menu", middleware.RequireAuth(http.HandlerFunc(handlers.SendDailyMenuToCook(sqlDB, cfg)))).Methods("POST", "OPTIONS")
 	api.Handle("/whatsapp/test", middleware.RequireAuth(http.HandlerFunc(handlers.TestWhatsAppIntegration(sqlDB, cfg)))).Methods("GET", "OPTIONS")
 	api.Handle("/whatsapp/cook-info", middleware.RequireAuth(http.HandlerFunc(handlers.GetCookWhatsAppInfo(sqlDB)))).Methods("GET", "OPTIONS")
+	api.Handle("/whatsapp/parse", middleware.RequireAuth(http.HandlerFunc(handlers.ParseWhatsAppMessage(cfg)))).Methods("POST", "OPTIONS")
+	api.Handle("/whatsapp/apply", middleware.RequireAuth(http.HandlerFunc(handlers.ApplyWhatsAppAction(sqlDB, cfg, cookedLogSvc)))).Methods("POST", "OPTIONS")
 
-	// Smart Meals
-	api.Handle("/meals/smart", middleware.RequireAuth(http.HandlerFunc(handlers.GetSmartMeals(sqlDB, cfg)))).Methods("GET", "OPTIONS")
+	// Smart Meals & cooked history
+	api.Handle("/meals/smart", middleware.RequireAuth(http.HandlerFunc(handlers.GetSmartMeals(sqlDB, cfg, cookedLogSvc)))).Methods("GET", "OPTIONS")
+	api.Handle("/meals/cooked-history", middleware.RequireAuth(http.HandlerFunc(handlers.GetCookedHistory(cookedLogSvc)))).Methods("GET", "OPTIONS")
+	api.Handle("/meals/cooked", middleware.RequireAuth(http.HandlerFunc(handlers.LogCookedDish(cookedLogSvc)))).Methods("POST", "OPTIONS")
 
 	// Legacy rescue meals
 	api.Handle("/rescue-meal/suggestions", middleware.RequireAuth(http.HandlerFunc(handlers.GetRescueMealSuggestions(sqlDB)))).Methods("GET", "POST", "OPTIONS")

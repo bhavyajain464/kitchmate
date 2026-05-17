@@ -17,6 +17,7 @@ import (
 type SendWhatsAppMessageRequest struct {
 	PhoneNumber string `json:"phone_number"`
 	Message     string `json:"message"`
+	DishName    string `json:"dish_name,omitempty"`
 	TestMode    bool   `json:"test_mode,omitempty"`
 }
 
@@ -53,7 +54,7 @@ type DailyMenuItem struct {
 }
 
 // SendWhatsAppMessage returns a wa.me compose link for an arbitrary recipient and message.
-func SendWhatsAppMessage(db *sql.DB, cfg *config.Config) http.HandlerFunc {
+func SendWhatsAppMessage(db *sql.DB, cfg *config.Config, cookedLog *services.CookedLogService) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		var req SendWhatsAppMessageRequest
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -81,6 +82,15 @@ func SendWhatsAppMessage(db *sql.DB, cfg *config.Config) http.HandlerFunc {
 		response.Message = "Open WhatsApp to send this message."
 		response.Body = body
 		response.WhatsappURL = waURL
+		if cookedLog != nil {
+			dish := strings.TrimSpace(req.DishName)
+			if dish == "" && strings.TrimSpace(req.Message) != "" {
+				dish = strings.TrimSpace(strings.Split(req.Message, "\n")[0])
+			}
+			if dish != "" {
+				cookedLog.LogDishName(r.Context(), getUserID(r), dish, "cook-sent")
+			}
+		}
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
 		json.NewEncoder(w).Encode(response)
@@ -88,7 +98,7 @@ func SendWhatsAppMessage(db *sql.DB, cfg *config.Config) http.HandlerFunc {
 }
 
 // SendMealSuggestionToCook sends a meal suggestion to the cook
-func SendMealSuggestionToCook(db *sql.DB, cfg *config.Config) http.HandlerFunc {
+func SendMealSuggestionToCook(db *sql.DB, cfg *config.Config, cookedLog *services.CookedLogService) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		var req SendMealSuggestionRequest
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -123,6 +133,9 @@ func SendMealSuggestionToCook(db *sql.DB, cfg *config.Config) http.HandlerFunc {
 		response.Message = "Open WhatsApp to send to your cook."
 		response.Body = body
 		response.WhatsappURL = waURL
+		if cookedLog != nil {
+			cookedLog.LogDishName(r.Context(), userID, req.MealName, "meal-sent")
+		}
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
 		json.NewEncoder(w).Encode(response)

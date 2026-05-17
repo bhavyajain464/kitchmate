@@ -1,9 +1,11 @@
 import React from 'react';
-import { StyleSheet, View, Platform } from 'react-native';
+import { StyleSheet, View, Platform, Image } from 'react-native';
 import { Text, Button, Surface, IconButton } from 'react-native-paper';
 import { StatusBar } from 'expo-status-bar';
 import { useAuth } from '../context/AuthContext';
 import { colors } from '../theme';
+
+const logo = require('../../assets/icon.png');
 
 function GoogleButtonWeb() {
   const { googleButtonRef } = useAuth();
@@ -50,8 +52,8 @@ export function LoginScreen() {
       <View style={styles.content}>
         {/* Logo */}
         <View style={styles.logoWrap}>
-          <Surface style={styles.logoCircle} elevation={3}>
-            <IconButton icon="silverware-fork-knife" iconColor="#4CAF50" size={36} style={{ margin: 0 }} />
+          <Surface style={styles.logoCard} elevation={3}>
+            <Image source={logo} style={styles.logoImage} resizeMode="contain" />
           </Surface>
         </View>
 
@@ -129,13 +131,18 @@ const styles = StyleSheet.create({
   },
 
   logoWrap: { alignItems: 'center', marginBottom: 16 },
-  logoCircle: {
-    width: 72,
-    height: 72,
-    borderRadius: 36,
-    backgroundColor: '#fff',
+  logoCard: {
+    width: 200,
+    height: 160,
+    borderRadius: 18,
+    backgroundColor: '#000',
     justifyContent: 'center',
     alignItems: 'center',
+    overflow: 'hidden',
+  },
+  logoImage: {
+    width: '100%',
+    height: '100%',
   },
   appName: {
     color: '#fff',

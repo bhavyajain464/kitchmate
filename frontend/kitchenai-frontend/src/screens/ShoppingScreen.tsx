@@ -19,21 +19,16 @@ import {
   Button,
   ActivityIndicator,
 } from 'react-native-paper';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as api from '../services/api';
-
-interface ShoppingItem {
-  id: string;
-  name: string;
-  qty: number;
-  unit: string;
-  bought: boolean;
-  created_at: string;
-}
+import { UserShoppingItem } from '../types';
+import { layout } from '../theme';
 
 const QUICK_UNITS = ['pcs', 'kg', 'g', 'L', 'ml', 'pack'];
 
 export function ShoppingScreen() {
-  const [items, setItems] = useState<ShoppingItem[]>([]);
+  const insets = useSafeAreaInsets();
+  const [items, setItems] = useState<UserShoppingItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
 
@@ -42,12 +37,11 @@ export function ShoppingScreen() {
   const [newUnit, setNewUnit] = useState('pcs');
   const [adding, setAdding] = useState(false);
 
-  const [deleteTarget, setDeleteTarget] = useState<ShoppingItem | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<UserShoppingItem | null>(null);
 
   const loadItems = useCallback(async () => {
     try {
-      const res = await api.getShoppingItems();
-      const all: ShoppingItem[] = res.items || [];
+      const all = await api.getShoppingItems();
       setItems(all.filter((i) => !i.bought));
     } catch {
       setItems([]);
@@ -96,12 +90,12 @@ export function ShoppingScreen() {
   return (
     <ScrollView
       style={styles.container}
-      contentContainerStyle={styles.scrollContent}
+      contentContainerStyle={[styles.scrollContent, { paddingBottom: layout.tabBarHeight + insets.bottom + 24 }]}
       refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
       showsVerticalScrollIndicator={false}
     >
       {/* Header */}
-      <View style={styles.header}>
+      <View style={[styles.header, { paddingTop: insets.top + 14 }]}>
         <View style={styles.headerRow}>
           <View>
             <Text variant="headlineSmall" style={styles.headerTitle}>Shopping List</Text>

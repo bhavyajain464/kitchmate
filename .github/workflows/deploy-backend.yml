@@ -66,6 +66,7 @@ jobs:
             --memory 256Mi \
             --cpu 1 \
             --allow-unauthenticated \
+            --set-secrets "REDIS_URL=redis-url:latest,KAFKA_PASSWORD=kafka-sasl-password:latest" \
             --quiet
 
       - name: Show service URL

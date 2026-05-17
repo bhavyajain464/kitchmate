@@ -15,6 +15,7 @@ type Config struct {
 	GeminiModel     string
 	GroqAPIKey      string
 	GroqModel       string
+	GroqNLUModel    string // small/fast model for WhatsApp NLU (saves TPD vs 70B)
 	GroqVisionModel string
 	// LLMProvider is "gemini" or "groq" (default groq). One provider per request — no cross-provider fallback.
 	LLMProvider           string
@@ -57,6 +58,9 @@ type Config struct {
 	DatabaseConnMaxIdleSec             int
 	KafkaConsumerGeminiBatchSize       int
 	KafkaConsumerPauseBetweenBatchesMs int
+
+	// Redis (optional): caches per-user cooked dish history (last 15 days).
+	RedisURL string
 }
 
 func Load() (*Config, error) {
@@ -66,7 +70,8 @@ func Load() (*Config, error) {
 	geminiAPIKey := getEnv("GEMINI_API_KEY", "")
 	geminiModel := getEnv("GEMINI_MODEL", "gemini-1.5-pro")
 	groqAPIKey := getEnv("GROQ_API_KEY", "")
-	groqModel := getEnv("GROQ_MODEL", "llama-3.3-70b-versatile")
+	groqModel := getEnv("GROQ_MODEL", "groq/compound")
+	groqNLUModel := getEnv("GROQ_NLU_MODEL", "llama-3.1-8b-instant")
 	groqVisionModel := getEnv("GROQ_VISION_MODEL", "llama-3.2-11b-vision-preview")
 	llmProvider := strings.ToLower(strings.TrimSpace(getEnv("LLM_PROVIDER", "groq")))
 	if llmProvider != "gemini" && llmProvider != "groq" {
@@ -181,6 +186,7 @@ func Load() (*Config, error) {
 	if kafkaConsumerPauseBetweenBatchesMs < 0 {
 		kafkaConsumerPauseBetweenBatchesMs = 0
 	}
+	redisURL := getEnv("REDIS_URL", "")
 
 	return &Config{
 		Port:                               port,
@@ -190,6 +196,7 @@ func Load() (*Config, error) {
 		GeminiModel:                        geminiModel,
 		GroqAPIKey:                         groqAPIKey,
 		GroqModel:                          groqModel,
+		GroqNLUModel:                       groqNLUModel,
 		GroqVisionModel:                    groqVisionModel,
 		LLMProvider:                        llmProvider,
 		GoogleTranslateKey:                 googleTranslateKey,
@@ -227,6 +234,7 @@ func Load() (*Config, error) {
 		DatabaseConnMaxIdleSec:             dbConnMaxIdleSec,
 		KafkaConsumerGeminiBatchSize:       kafkaConsumerGeminiBatch,
 		KafkaConsumerPauseBetweenBatchesMs: kafkaConsumerPauseBetweenBatchesMs,
+		RedisURL:                           redisURL,
 	}, nil
 }
 

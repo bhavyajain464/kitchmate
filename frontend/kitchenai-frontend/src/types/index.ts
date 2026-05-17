@@ -60,6 +60,16 @@ export interface ShoppingListItem {
   priority: number;
 }
 
+/** User-maintained shopping list (shopping_items table). */
+export interface UserShoppingItem {
+  id: string;
+  name: string;
+  qty: number;
+  unit: string;
+  bought: boolean;
+  created_at: string;
+}
+
 export interface ShoppingListResponse {
   items: ShoppingListItem[];
   total_items: number;
@@ -136,6 +146,57 @@ export interface WhatsAppResult {
   error?: string;
   status?: string;
   translated?: boolean;
+}
+
+export type WhatsAppParseIntent =
+  | 'add_to_shopping_list'
+  | 'mark_out_of_stock'
+  | 'add_inventory'
+  | 'note_dislike'
+  | 'report_cooked_dish'
+  | 'unknown';
+
+export interface CookedLogEntry {
+  id: string;
+  dish_name: string;
+  dish_id?: string;
+  cooked_on: string;
+  meal_slot?: string;
+  portions: number;
+  source: string;
+  notes?: string;
+  created_at: string;
+}
+
+export interface CookedHistoryResponse {
+  entries: CookedLogEntry[];
+  days: number;
+  from_cache?: boolean;
+}
+
+export interface WhatsAppParsedAction {
+  intent: WhatsAppParseIntent;
+  confidence: number;
+  summary: string;
+  entities: {
+    item_name?: string;
+    qty?: number;
+    unit?: string;
+    dish_name?: string;
+    note?: string;
+  };
+}
+
+export interface WhatsAppParseResponse {
+  action: WhatsAppParsedAction;
+  raw_text: string;
+}
+
+export interface WhatsAppApplyResponse {
+  success: boolean;
+  message: string;
+  intent?: string;
+  details?: Record<string, unknown>;
 }
 
 export interface UserMemory {

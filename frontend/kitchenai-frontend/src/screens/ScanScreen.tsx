@@ -1,63 +1,37 @@
 import React, { useState } from 'react';
 import { StyleSheet, View, ScrollView, Image, Alert, Platform } from 'react-native';
 import { Text, Button, Card, Surface, ActivityIndicator } from 'react-native-paper';
-import * as ImagePicker from 'expo-image-picker';
+import { BillCameraModal } from '../components/BillCameraModal';
 import * as api from '../services/api';
 import { ScanResult } from '../types';
 import { colors } from '../theme';
+import { pickBillImageFromCameraWeb, pickBillImageFromGallery } from '../utils/billImagePicker';
 
 export function ScanScreen() {
   const [imageUri, setImageUri] = useState<string | null>(null);
   const [scanning, setScanning] = useState(false);
   const [result, setResult] = useState<ScanResult | null>(null);
+  const [cameraModalVisible, setCameraModalVisible] = useState(false);
 
-  const requestPermission = async (type: 'camera' | 'gallery') => {
-    if (type === 'camera') {
-      const { status } = await ImagePicker.requestCameraPermissionsAsync();
-      if (status !== 'granted') {
-        Alert.alert('Permission Required', 'Camera access is needed to scan bills.');
-        return false;
-      }
-    } else {
-      const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
-      if (status !== 'granted') {
-        Alert.alert('Permission Required', 'Photo library access is needed to select bills.');
-        return false;
-      }
-    }
-    return true;
+  const applyPickedImage = (uri: string) => {
+    setImageUri(uri);
+    setResult(null);
   };
 
-  const pickFromCamera = async () => {
-    const ok = await requestPermission('camera');
-    if (!ok) return;
-
-    const result = await ImagePicker.launchCameraAsync({
-      mediaTypes: ['images'],
-      quality: 0.8,
-      allowsEditing: true,
-    });
-
-    if (!result.canceled && result.assets[0]) {
-      setImageUri(result.assets[0].uri);
-      setResult(null);
+  const pickFromCamera = () => {
+    if (Platform.OS === 'web') {
+      void (async () => {
+        const uri = await pickBillImageFromCameraWeb();
+        if (uri) applyPickedImage(uri);
+      })();
+      return;
     }
+    setCameraModalVisible(true);
   };
 
   const pickFromGallery = async () => {
-    const ok = await requestPermission('gallery');
-    if (!ok) return;
-
-    const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ['images'],
-      quality: 0.8,
-      allowsEditing: true,
-    });
-
-    if (!result.canceled && result.assets[0]) {
-      setImageUri(result.assets[0].uri);
-      setResult(null);
-    }
+    const uri = await pickBillImageFromGallery();
+    if (uri) applyPickedImage(uri);
   };
 
   const handleScan = async () => {
@@ -86,6 +60,12 @@ export function ScanScreen() {
   };
 
   return (
+    <>
+    <BillCameraModal
+      visible={cameraModalVisible}
+      onClose={() => setCameraModalVisible(false)}
+      onCaptured={applyPickedImage}
+    />
     <ScrollView style={styles.container} contentContainerStyle={styles.content}>
       <Card style={styles.card} mode="elevated">
         <Card.Content>
@@ -222,6 +202,7 @@ export function ScanScreen() {
         </Card>
       )}
     </ScrollView>
+    </>
   );
 }
 

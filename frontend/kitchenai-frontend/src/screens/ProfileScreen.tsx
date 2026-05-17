@@ -20,9 +20,11 @@ import {
   SegmentedButtons,
   Surface,
 } from 'react-native-paper';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useAuth } from '../context/AuthContext';
 import { UserProfile, UserMemory } from '../types';
 import * as api from '../services/api';
+import { layout } from '../theme';
 
 const SPICE_LEVELS = ['mild', 'medium', 'spicy', 'extra_spicy'];
 const COOKING_SKILLS = ['beginner', 'intermediate', 'advanced'];
@@ -45,6 +47,7 @@ const MEMORY_CATEGORIES = [
 const SPICE_EMOJI: Record<string, string> = { mild: '🌶', medium: '🌶🌶', spicy: '🌶🌶🌶', extra_spicy: '🔥' };
 
 export function ProfileScreen() {
+  const insets = useSafeAreaInsets();
   const { user, signOut } = useAuth();
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [loading, setLoading] = useState(true);
@@ -173,9 +176,13 @@ export function ProfileScreen() {
   }
 
   return (
-    <ScrollView style={styles.container} contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
+    <ScrollView
+      style={styles.container}
+      contentContainerStyle={[styles.scrollContent, { paddingBottom: layout.tabBarHeight + insets.bottom + 24 }]}
+      showsVerticalScrollIndicator={false}
+    >
       {/* Profile Header */}
-      <View style={styles.header}>
+      <View style={[styles.header, { paddingTop: insets.top + 14 }]}>
         <View style={styles.avatarWrap}>
           {user?.picture_url ? (
             <Image source={{ uri: user.picture_url }} style={styles.avatar} />
@@ -430,11 +437,6 @@ export function ProfileScreen() {
             <View style={styles.settRow}>
               <Text variant="bodyMedium" style={styles.settLabel}>App Version</Text>
               <Text variant="bodyMedium" style={styles.settVal}>1.0.0</Text>
-            </View>
-            <Divider style={styles.settDivider} />
-            <View style={styles.settRow}>
-              <Text variant="bodyMedium" style={styles.settLabel}>Powered by</Text>
-              <Text variant="bodyMedium" style={styles.settVal}>Google Gemini AI</Text>
             </View>
           </Surface>
 

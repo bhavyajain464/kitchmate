@@ -25,16 +25,20 @@ import {
   IconButton,
   Checkbox,
   Snackbar,
+  Menu,
 } from 'react-native-paper';
-import * as ImagePicker from 'expo-image-picker';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { BillCameraModal } from '../components/BillCameraModal';
 import { InventoryItemCard } from '../components/InventoryItemCard';
+import { pickBillImageFromCameraWeb, pickBillImageFromGallery } from '../utils/billImagePicker';
 import * as api from '../services/api';
 import { InventoryItem, ExpiringItem, ScanResult } from '../types';
-import { colors } from '../theme';
+import { colors, layout } from '../theme';
 
 type TabValue = 'all' | 'expired';
 
 export function InventoryScreen() {
+  const insets = useSafeAreaInsets();
   const [inventory, setInventory] = useState<InventoryItem[]>([]);
   const [expiringItems, setExpiringItems] = useState<ExpiringItem[]>([]);
   const [expiredItems, setExpiredItems] = useState<ExpiringItem[]>([]);
@@ -47,8 +51,9 @@ export function InventoryScreen() {
   const [snackMsg, setSnackMsg] = useState('');
   const [snackVisible, setSnackVisible] = useState(false);
 
-  // FAB group
+  // FAB group (native) / FAB menu (web — avoids nested <button> hydration warning)
   const [fabOpen, setFabOpen] = useState(false);
+  const [webMenuVisible, setWebMenuVisible] = useState(false);
 
   // Manual add modal
   const [addModalVisible, setAddModalVisible] = useState(false);
@@ -58,6 +63,11 @@ export function InventoryScreen() {
   const [newExpiry, setNewExpiry] = useState('');
   const [adding, setAdding] = useState(false);
 
+  // Edit expiry modal
+  const [editTarget, setEditTarget] = useState<InventoryItem | ExpiringItem | null>(null);
+  const [editExpiry, setEditExpiry] = useState('');
+  const [savingExpiry, setSavingExpiry] = useState(false);
+
   // Scan modal
   const [scanModalVisible, setScanModalVisible] = useState(false);
   const [imageUri, setImageUri] = useState<string | null>(null);
@@ -65,6 +75,7 @@ export function InventoryScreen() {
   const [scanResult, setScanResult] = useState<ScanResult | null>(null);
   const [selectedItems, setSelectedItems] = useState<Record<number, boolean>>({});
   const [addingScanned, setAddingScanned] = useState(false);
+  const [cameraModalVisible, setCameraModalVisible] = useState(false);
 
   const loadData = useCallback(async () => {
     try {
@@ -134,6 +145,45 @@ export function InventoryScreen() {
     setNewExpiry('');
   };
 
+  // ── Edit Expiry ──────────────────────────────────────────────
+
+  const openEditExpiry = (item: InventoryItem | ExpiringItem) => {
+    setEditTarget(item);
+    setEditExpiry(item.estimated_expiry ? item.estimated_expiry.slice(0, 10) : '');
+  };
+
+  const closeEditExpiry = () => {
+    setEditTarget(null);
+    setEditExpiry('');
+    setSavingExpiry(false);
+  };
+
+  const handleSaveExpiry = async () => {
+    if (!editTarget) return;
+    const trimmed = editExpiry.trim();
+    if (trimmed && !/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) {
+      Alert.alert('Invalid Date', 'Use YYYY-MM-DD or leave blank to clear.');
+      return;
+    }
+    setSavingExpiry(true);
+    try {
+      await api.updateInventoryItem(editTarget.item_id, {
+        canonical_name: editTarget.canonical_name,
+        qty: editTarget.qty,
+        unit: editTarget.unit,
+        estimated_expiry: trimmed || undefined,
+        is_manual: 'is_manual' in editTarget ? editTarget.is_manual : true,
+      });
+      await loadData();
+      showSnack(trimmed ? `Expiry updated for "${editTarget.canonical_name}"` : `Expiry cleared for "${editTarget.canonical_name}"`);
+      closeEditExpiry();
+    } catch {
+      Alert.alert('Error', 'Could not update expiry.');
+    } finally {
+      setSavingExpiry(false);
+    }
+  };
+
   // ── Mark as Expired ──────────────────────────────────────────
 
   const handleExpireItem = async (item: InventoryItem) => {
@@ -201,6 +251,7 @@ export function InventoryScreen() {
 
   const closeScanModal = () => {
     setScanModalVisible(false);
+    setCameraModalVisible(false);
     setImageUri(null);
     setScanResult(null);
     setSelectedItems({});
@@ -261,49 +312,25 @@ export function InventoryScreen() {
     closeScanModal();
   };
 
-  const requestPermission = async (type: 'camera' | 'gallery') => {
-    if (type === 'camera') {
-      const { status } = await ImagePicker.requestCameraPermissionsAsync();
-      if (status !== 'granted') {
-        Alert.alert('Permission Required', 'Camera access is needed to scan bills.');
-        return false;
-      }
-    } else {
-      const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
-      if (status !== 'granted') {
-        Alert.alert('Permission Required', 'Photo library access is needed.');
-        return false;
-      }
-    }
-    return true;
+  const applyPickedImage = (uri: string) => {
+    setImageUri(uri);
+    setScanResult(null);
   };
 
-  const pickFromCamera = async () => {
-    const ok = await requestPermission('camera');
-    if (!ok) return;
-    const result = await ImagePicker.launchCameraAsync({
-      mediaTypes: ['images'],
-      quality: 0.8,
-      allowsEditing: true,
-    });
-    if (!result.canceled && result.assets[0]) {
-      setImageUri(result.assets[0].uri);
-      setScanResult(null);
+  const pickFromCamera = () => {
+    if (Platform.OS === 'web') {
+      void (async () => {
+        const uri = await pickBillImageFromCameraWeb();
+        if (uri) applyPickedImage(uri);
+      })();
+      return;
     }
+    setCameraModalVisible(true);
   };
 
   const pickFromGallery = async () => {
-    const ok = await requestPermission('gallery');
-    if (!ok) return;
-    const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ['images'],
-      quality: 0.8,
-      allowsEditing: true,
-    });
-    if (!result.canceled && result.assets[0]) {
-      setImageUri(result.assets[0].uri);
-      setScanResult(null);
-    }
+    const uri = await pickBillImageFromGallery();
+    if (uri) applyPickedImage(uri);
   };
 
   const handleScan = async () => {
@@ -358,6 +385,13 @@ export function InventoryScreen() {
         </View>
         <View style={styles.expiredActions}>
           <IconButton
+            icon="calendar-edit"
+            iconColor="#2196F3"
+            size={22}
+            onPress={() => openEditExpiry(item)}
+            style={styles.actionBtn}
+          />
+          <IconButton
             icon="cart-plus"
             iconColor="#4CAF50"
             size={22}
@@ -376,9 +410,11 @@ export function InventoryScreen() {
     </Card>
   );
 
+  const listContentStyle = [styles.list, { paddingBottom: layout.tabBarHeight + insets.bottom + 96 }];
+
   return (
     <View style={styles.container}>
-      <View style={styles.header}>
+      <View style={[styles.header, { paddingTop: insets.top + 14 }]}>
         <Text variant="headlineSmall" style={styles.headerTitle}>
           Inventory
         </Text>
@@ -431,10 +467,14 @@ export function InventoryScreen() {
           <FlatList
             data={filteredInventory}
             renderItem={({ item }) => (
-              <InventoryItemCard item={item} onExpire={handleExpireItem} />
+              <InventoryItemCard
+                item={item}
+                onExpire={handleExpireItem}
+                onEditExpiry={openEditExpiry}
+              />
             )}
             keyExtractor={(item) => item.item_id}
-            contentContainerStyle={styles.list}
+            contentContainerStyle={listContentStyle}
             refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
             ListEmptyComponent={
               <Text variant="bodyMedium" style={styles.emptyText}>
@@ -454,14 +494,14 @@ export function InventoryScreen() {
           data={filteredExpired}
           renderItem={renderExpiredCard}
           keyExtractor={(item) => item.item_id}
-          contentContainerStyle={styles.list}
+          contentContainerStyle={listContentStyle}
           refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
           ListHeaderComponent={
             expiredItems.length > 0 ? (
               <Surface style={styles.expiredBanner} elevation={0}>
                 <IconButton icon="alert-circle" iconColor="#F44336" size={20} style={{ margin: 0 }} />
                 <Text variant="bodySmall" style={styles.expiredBannerText}>
-                  Tap the cart icon to re-order an expired item
+                  Showing items expired in the last 7 days. Tap the calendar to extend, cart to re-order, or trash to remove. Items older than 7 days are auto-deleted.
                 </Text>
               </Surface>
             ) : null
@@ -474,32 +514,77 @@ export function InventoryScreen() {
         />
       )}
 
-      {/* FAB Group — two ways to add items */}
-      <Portal>
-        <FAB.Group
-          open={fabOpen}
-          visible
-          icon={fabOpen ? 'close' : 'plus'}
-          actions={[
-            {
-              icon: 'pencil-plus',
-              label: 'Add Manually',
-              onPress: () => setAddModalVisible(true),
-              style: { backgroundColor: '#4CAF50' },
-              color: '#fff',
-            },
-            {
-              icon: 'camera',
-              label: 'Scan & Add',
-              onPress: openScanModal,
-              style: { backgroundColor: colors.scan },
-              color: '#fff',
-            },
+      {/* FAB — two ways to add items.
+          On native we use FAB.Group (renders as Views).
+          On web we use FAB + Menu — FAB.Group emits nested <button> on RNW,
+          which produces a React DOM hydration warning. */}
+      {Platform.OS === 'web' ? (
+        <View
+          style={[
+            styles.webFabWrap,
+            { bottom: layout.tabBarHeight + insets.bottom + 16 },
           ]}
-          onStateChange={({ open }) => setFabOpen(open)}
-          fabStyle={styles.fab}
-        />
-      </Portal>
+          pointerEvents="box-none"
+        >
+          <Menu
+            visible={webMenuVisible}
+            onDismiss={() => setWebMenuVisible(false)}
+            anchor={
+              <FAB
+                icon="plus"
+                style={styles.fab}
+                color="#fff"
+                onPress={() => setWebMenuVisible(true)}
+              />
+            }
+            anchorPosition="top"
+          >
+            <Menu.Item
+              leadingIcon="pencil-plus"
+              title="Add Manually"
+              onPress={() => {
+                setWebMenuVisible(false);
+                setAddModalVisible(true);
+              }}
+            />
+            <Menu.Item
+              leadingIcon="camera"
+              title="Scan & Add"
+              onPress={() => {
+                setWebMenuVisible(false);
+                openScanModal();
+              }}
+            />
+          </Menu>
+        </View>
+      ) : (
+        <Portal>
+          <FAB.Group
+            open={fabOpen}
+            visible
+            icon={fabOpen ? 'close' : 'plus'}
+            actions={[
+              {
+                icon: 'pencil-plus',
+                label: 'Add Manually',
+                onPress: () => setAddModalVisible(true),
+                style: { backgroundColor: '#4CAF50' },
+                color: '#fff',
+              },
+              {
+                icon: 'camera',
+                label: 'Scan & Add',
+                onPress: openScanModal,
+                style: { backgroundColor: colors.scan },
+                color: '#fff',
+              },
+            ]}
+            onStateChange={({ open }) => setFabOpen(open)}
+            fabStyle={styles.fab}
+            style={{ paddingBottom: layout.tabBarHeight + insets.bottom + 8 }}
+          />
+        </Portal>
+      )}
 
       {/* ── Manual Add Modal ─────────────────────────────────── */}
       <Portal>
@@ -559,6 +644,50 @@ export function InventoryScreen() {
           </View>
         </Modal>
       </Portal>
+
+      {/* ── Edit Expiry Modal ────────────────────────────────── */}
+      <Portal>
+        <Modal
+          visible={editTarget !== null}
+          onDismiss={closeEditExpiry}
+          contentContainerStyle={styles.modal}
+        >
+          <Text variant="titleLarge" style={styles.modalTitle}>
+            {editTarget ? `Update expiry — ${editTarget.canonical_name}` : 'Update expiry'}
+          </Text>
+          <Divider style={styles.modalDivider} />
+
+          <Text variant="bodySmall" style={{ color: '#666', marginBottom: 12 }}>
+            Set a new date (YYYY-MM-DD), or leave blank to clear and let AI re-estimate.
+          </Text>
+
+          <TextInput
+            label="Expiry Date"
+            value={editExpiry}
+            onChangeText={setEditExpiry}
+            mode="outlined"
+            style={styles.input}
+            placeholder="YYYY-MM-DD"
+            autoCapitalize="none"
+            keyboardType={Platform.OS === 'ios' ? 'numbers-and-punctuation' : 'default'}
+          />
+
+          <View style={styles.modalActions}>
+            <Button mode="outlined" onPress={closeEditExpiry} disabled={savingExpiry}>
+              Cancel
+            </Button>
+            <Button mode="contained" onPress={handleSaveExpiry} loading={savingExpiry}>
+              Save
+            </Button>
+          </View>
+        </Modal>
+      </Portal>
+
+      <BillCameraModal
+        visible={cameraModalVisible}
+        onClose={() => setCameraModalVisible(false)}
+        onCaptured={applyPickedImage}
+      />
 
       {/* ── Scan Bill Modal ──────────────────────────────────── */}
       <Portal>
@@ -737,7 +866,6 @@ const styles = StyleSheet.create({
   header: {
     backgroundColor: '#2E7D32',
     paddingHorizontal: 20,
-    paddingTop: Platform.OS === 'web' ? 16 : 12,
     paddingBottom: 22,
     borderBottomLeftRadius: 28,
     borderBottomRightRadius: 28,
@@ -782,7 +910,6 @@ const styles = StyleSheet.create({
   },
   list: {
     padding: 16,
-    paddingBottom: 100,
   },
   emptyText: {
     textAlign: 'center',
@@ -792,6 +919,10 @@ const styles = StyleSheet.create({
   },
   fab: {
     backgroundColor: '#4CAF50',
+  },
+  webFabWrap: {
+    position: 'absolute',
+    right: 16,
   },
 
   // Expired tab

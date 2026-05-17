@@ -1,19 +1,32 @@
 import { Platform } from 'react-native';
 import {
+  clampWhatsAppMessageText,
+  logImportError,
+  normalizeParsedAction,
+  toUserFacingMessage,
+  unknownWhatsAppAction,
+} from '../utils/whatsappAction';
+import {
   InventoryItem,
   ExpiringItem,
   RescueMealResponse,
   LowStockItem,
   ShoppingListResponse,
+  UserShoppingItem,
   PreMarketPingResponse,
   ProcurementSummary,
   ScanResult,
   WhatsAppResult,
+  WhatsAppParsedAction,
+  WhatsAppParseResponse,
+  WhatsAppApplyResponse,
   CookInfo,
   CookProfile,
   UserProfile,
   UpdateProfileRequest,
   UserMemory,
+  CookedLogEntry,
+  CookedHistoryResponse,
 } from '../types';
 
 const API_BASE_URL = process.env.EXPO_PUBLIC_API_BASE_URL!;
@@ -107,6 +120,30 @@ export async function deleteInventoryItem(itemId: string): Promise<void> {
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
 }
 
+export async function updateInventoryItem(
+  itemId: string,
+  patch: {
+    canonical_name: string;
+    qty: number;
+    unit: string;
+    estimated_expiry?: string;
+    is_manual?: boolean;
+  },
+): Promise<void> {
+  const res = await authFetch(`${API_BASE_URL}/inventory/${itemId}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      canonical_name: patch.canonical_name,
+      qty: patch.qty,
+      unit: patch.unit,
+      estimated_expiry: patch.estimated_expiry ?? '',
+      is_manual: patch.is_manual ?? false,
+    }),
+  });
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+}
+
 export async function expireInventoryItem(itemId: string): Promise<void> {
   const res = await authFetch(`${API_BASE_URL}/inventory/${itemId}/expire`, {
     method: 'PATCH',
@@ -168,6 +205,7 @@ export async function scanBillUpload(imageUri: string): Promise<ScanResult> {
 export async function sendWhatsAppMessage(
   phoneNumber: string,
   message: string,
+  dishName?: string,
 ): Promise<WhatsAppResult> {
   const res = await authFetch(`${API_BASE_URL}/whatsapp/send`, {
     method: 'POST',
@@ -175,6 +213,7 @@ export async function sendWhatsAppMessage(
     body: JSON.stringify({
       phone_number: phoneNumber,
       message,
+      dish_name: dishName,
     }),
   });
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
@@ -225,6 +264,113 @@ export async function getCookInfo(): Promise<CookInfo> {
   return res.json();
 }
 
+function parseApiErrorMessage(body: string, status: number): string {
+  const trimmed = body.trim();
+  if (!trimmed) return toUserFacingMessage('');
+  try {
+    const j = JSON.parse(trimmed) as { error?: string; message?: string };
+    return toUserFacingMessage(j.error || j.message || trimmed);
+  } catch {
+    return toUserFacingMessage(trimmed);
+  }
+}
+
+export async function parseWhatsAppMessage(text: string): Promise<WhatsAppParseResponse> {
+  const trimmed = clampWhatsAppMessageText(text);
+  if (!trimmed) {
+    throw new Error('Message is empty');
+  }
+  const url = `${API_BASE_URL}/whatsapp/parse`;
+  let res: Response;
+  try {
+    res = await authFetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ text: trimmed }),
+    });
+  } catch (cause) {
+    const rawMessage = cause instanceof Error ? cause.message : String(cause);
+    logImportError('parse', { url, rawMessage, cause });
+    throw new Error(toUserFacingMessage(rawMessage));
+  }
+  const body = await res.text();
+  if (!res.ok) {
+    const friendly = parseApiErrorMessage(body, res.status);
+    logImportError('parse', {
+      url,
+      status: res.status,
+      body,
+      rawMessage: body.trim() || `HTTP ${res.status}`,
+    });
+    throw new Error(friendly);
+  }
+  let data: WhatsAppParseResponse;
+  try {
+    data = JSON.parse(body) as WhatsAppParseResponse;
+  } catch (cause) {
+    logImportError('parse', {
+      url,
+      status: res.status,
+      body,
+      rawMessage: 'Invalid JSON in parse response',
+      cause,
+    });
+    throw new Error('Invalid response from server');
+  }
+  const action = normalizeParsedAction(data?.action) ?? unknownWhatsAppAction();
+  if (__DEV__) {
+    console.log('[KITCHMATE import/parse] ok', {
+      intent: action.intent,
+      confidence: action.confidence,
+      summary: action.summary,
+    });
+  }
+  return { action, raw_text: typeof data?.raw_text === 'string' ? data.raw_text : trimmed };
+}
+
+export async function applyWhatsAppAction(action: WhatsAppParsedAction): Promise<WhatsAppApplyResponse> {
+  const safe = normalizeParsedAction(action);
+  if (!safe) {
+    throw new Error('Invalid action');
+  }
+  if (safe.intent === 'unknown' || safe.confidence < 0.5) {
+    throw new Error('This message was not understood well enough to apply.');
+  }
+  const url = `${API_BASE_URL}/whatsapp/apply`;
+  let res: Response;
+  try {
+    res = await authFetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: safe }),
+    });
+  } catch (cause) {
+    const rawMessage = cause instanceof Error ? cause.message : String(cause);
+    logImportError('apply', { url, rawMessage, cause });
+    throw new Error(toUserFacingMessage(rawMessage));
+  }
+  const body = await res.text();
+  let data: WhatsAppApplyResponse & { error?: string };
+  try {
+    data = JSON.parse(body) as WhatsAppApplyResponse & { error?: string };
+  } catch (cause) {
+    logImportError('apply', {
+      url,
+      status: res.status,
+      body,
+      rawMessage: 'Invalid JSON in apply response',
+      cause,
+    });
+    throw new Error(`HTTP ${res.status}`);
+  }
+  if (!res.ok || !data.success) {
+    const raw = data.message || data.error || body.trim() || `HTTP ${res.status}`;
+    logImportError('apply', { url, status: res.status, body, rawMessage: raw });
+    throw new Error(toUserFacingMessage(raw));
+  }
+  return data;
+}
+
 // ─── Rescue Meals ────────────────────────────────────────────
 
 export async function getRescueMealSuggestions(
@@ -255,10 +401,12 @@ export async function getSimpleRescueMeal(): Promise<{ suggestion: string }> {
 
 // ─── Shopping List ────────────────────────────────────────────
 
-export async function getShoppingItems(): Promise<any> {
+export async function getShoppingItems(): Promise<UserShoppingItem[]> {
   const res = await authFetch(`${API_BASE_URL}/shopping`);
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
-  return res.json();
+  const data = await res.json();
+  const items = Array.isArray(data) ? data : data?.items;
+  return Array.isArray(items) ? items : [];
 }
 
 export async function addShoppingItem(name: string, qty: number = 1, unit: string = 'pcs'): Promise<any> {
@@ -351,11 +499,39 @@ export async function sendPreMarketPing(
 
 // ─── Smart Meals (LLM-powered) ────────────────────────────────
 
-export async function getSmartMeals(category: string, userPrompt?: string): Promise<any> {
+export async function getSmartMeals(
+  category: string,
+  userPrompt?: string,
+  excludeDish?: string,
+): Promise<any> {
   const qp = new URLSearchParams();
   qp.set('category', category);
   if (userPrompt) qp.set('prompt', userPrompt);
+  if (excludeDish?.trim()) qp.set('exclude', excludeDish.trim());
   const res = await authFetch(`${API_BASE_URL}/meals/smart?${qp.toString()}`);
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  return res.json();
+}
+
+export async function getCookedHistory(): Promise<CookedHistoryResponse> {
+  const res = await authFetch(`${API_BASE_URL}/meals/cooked-history`);
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  return res.json();
+}
+
+export async function logCookedDish(payload: {
+  dish_name: string;
+  meal_slot?: string;
+  portions?: number;
+  source?: string;
+  notes?: string;
+  cooked_on?: string;
+}): Promise<CookedLogEntry> {
+  const res = await authFetch(`${API_BASE_URL}/meals/cooked`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
   return res.json();
 }

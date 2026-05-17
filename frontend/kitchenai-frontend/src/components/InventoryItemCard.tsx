@@ -7,9 +7,10 @@ interface InventoryItemCardProps {
   item: InventoryItem;
   onPress?: () => void;
   onExpire?: (item: InventoryItem) => void;
+  onEditExpiry?: (item: InventoryItem) => void;
 }
 
-export function InventoryItemCard({ item, onPress, onExpire }: InventoryItemCardProps) {
+export function InventoryItemCard({ item, onPress, onExpire, onEditExpiry }: InventoryItemCardProps) {
   let daysLeft: number | null = null;
   if (item.estimated_expiry) {
     const expiry = new Date(item.estimated_expiry);
@@ -49,15 +50,26 @@ export function InventoryItemCard({ item, onPress, onExpire }: InventoryItemCard
               </Text>
             )}
           </View>
-          {onExpire && (
-            <IconButton
-              icon="clock-remove-outline"
-              iconColor="#FF9800"
-              size={22}
-              onPress={() => onExpire(item)}
-              style={styles.actionBtn}
-            />
-          )}
+          <View style={styles.actions}>
+            {onEditExpiry && (
+              <IconButton
+                icon="calendar-edit"
+                iconColor="#2196F3"
+                size={22}
+                onPress={() => onEditExpiry(item)}
+                style={styles.actionBtn}
+              />
+            )}
+            {onExpire && (
+              <IconButton
+                icon="clock-remove-outline"
+                iconColor="#FF9800"
+                size={22}
+                onPress={() => onExpire(item)}
+                style={styles.actionBtn}
+              />
+            )}
+          </View>
         </View>
       </Card.Content>
     </Card>
@@ -88,6 +100,10 @@ const styles = StyleSheet.create({
   expiry: {
     color: '#FF9800',
     fontWeight: '600',
+  },
+  actions: {
+    flexDirection: 'row',
+    alignItems: 'center',
   },
   actionBtn: {
     margin: 0,

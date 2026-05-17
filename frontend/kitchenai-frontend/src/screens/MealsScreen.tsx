@@ -1,4 +1,4 @@
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useEffect } from 'react';
 import {
   StyleSheet,
   View,
@@ -14,9 +14,41 @@ import {
   TextInput,
   IconButton,
   Button,
+  Portal,
+  Modal,
+  Divider,
 } from 'react-native-paper';
 import { useNavigation } from '@react-navigation/native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as api from '../services/api';
+import { CookedLogEntry } from '../types';
+import { layout } from '../theme';
+
+const SOURCE_LABELS: Record<string, string> = {
+  manual: 'Logged',
+  'ai-suggested': 'Meal idea',
+  'meal-sent': 'Sent to cook',
+  'cook-sent': 'Cook message',
+  'whatsapp-parsed': 'WhatsApp',
+};
+
+const MEAL_SLOTS = [
+  { id: 'breakfast', label: 'Breakfast' },
+  { id: 'lunch', label: 'Lunch' },
+  { id: 'dinner', label: 'Dinner' },
+  { id: 'snack', label: 'Snack' },
+] as const;
+
+function todayISO(): string {
+  const d = new Date();
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
+}
+
+const GRID_GAP = 14;
+const GRID_PAD = 18;
 
 interface SmartMeal {
   name: string;
@@ -37,6 +69,7 @@ interface MealCategory {
 }
 
 const CATEGORIES = [
+  { id: 'daily', title: 'Daily', subtitle: 'Just a dish idea', icon: 'calendar-today', color: '#795548', bg: '#EFEBE9' },
   { id: 'rescue_meal', title: 'Rescue', subtitle: 'Use expiring items', icon: 'alert-circle-outline', color: '#9C27B0', bg: '#F3E5F5' },
   { id: 'meal_of_day', title: 'Meal of Day', subtitle: 'Best from inventory', icon: 'star-circle', color: '#FF9800', bg: '#FFF3E0' },
   { id: 'most_healthy', title: 'Healthy', subtitle: 'Nutrient-rich picks', icon: 'heart-pulse', color: '#4CAF50', bg: '#E8F5E9' },
@@ -50,14 +83,108 @@ const DIFFICULTY_COLORS: Record<string, string> = {
   hard: '#F44336',
 };
 
+function CategoryBox({
+  icon,
+  label,
+  subtitle,
+  color,
+  bg,
+  onPress,
+}: {
+  icon: string;
+  label: string;
+  subtitle: string;
+  color: string;
+  bg: string;
+  onPress: () => void;
+}) {
+  return (
+    <Pressable onPress={onPress} style={({ pressed }) => [styles.gridItem, pressed && { opacity: 0.88 }]}>
+      <Surface style={[styles.gridSurface, { backgroundColor: bg }]} elevation={1}>
+        <View style={styles.gridIconWrap}>
+          <IconButton icon={icon} iconColor={color} size={28} style={{ margin: 0 }} />
+        </View>
+        <Text variant="titleSmall" style={[styles.gridLabel, { color }]}>{label}</Text>
+        <Text variant="bodySmall" style={styles.gridSub}>{subtitle}</Text>
+      </Surface>
+    </Pressable>
+  );
+}
+
 export function MealsScreen() {
   const navigation = useNavigation<any>();
+  const insets = useSafeAreaInsets();
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
   const [result, setResult] = useState<MealCategory | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [userPrompt, setUserPrompt] = useState('');
   const [inventoryCount, setInventoryCount] = useState(0);
+  const [mealHistory, setMealHistory] = useState<CookedLogEntry[]>([]);
+  const [addModalVisible, setAddModalVisible] = useState(false);
+  const [addDishName, setAddDishName] = useState('');
+  const [addMealSlot, setAddMealSlot] = useState<string>('');
+  const [addCookedOn, setAddCookedOn] = useState(todayISO);
+  const [addNotes, setAddNotes] = useState('');
+  const [addSaving, setAddSaving] = useState(false);
+  const [addError, setAddError] = useState<string | null>(null);
+
+  const refreshHistory = useCallback(async () => {
+    try {
+      const res = await api.getCookedHistory();
+      setMealHistory(res.entries || []);
+    } catch {
+      setMealHistory([]);
+    }
+  }, []);
+
+  useEffect(() => {
+    refreshHistory();
+  }, [refreshHistory]);
+
+  const openAddMeal = () => {
+    setAddDishName('');
+    setAddMealSlot('');
+    setAddCookedOn(todayISO());
+    setAddNotes('');
+    setAddError(null);
+    setAddModalVisible(true);
+  };
+
+  const closeAddMeal = () => {
+    setAddModalVisible(false);
+    setAddError(null);
+  };
+
+  const handleAddMeal = async () => {
+    const name = addDishName.trim();
+    if (!name) {
+      setAddError('Enter what you ate.');
+      return;
+    }
+    const cookedOn = addCookedOn.trim();
+    if (cookedOn && !/^\d{4}-\d{2}-\d{2}$/.test(cookedOn)) {
+      setAddError('Date must be YYYY-MM-DD.');
+      return;
+    }
+    setAddSaving(true);
+    setAddError(null);
+    try {
+      await api.logCookedDish({
+        dish_name: name,
+        meal_slot: addMealSlot || undefined,
+        source: 'manual',
+        notes: addNotes.trim() || undefined,
+        cooked_on: cookedOn || todayISO(),
+      });
+      closeAddMeal();
+      await refreshHistory();
+    } catch {
+      setAddError('Could not save. Check you are signed in and the backend is running.');
+    } finally {
+      setAddSaving(false);
+    }
+  };
 
   const sendToCook = (meal: SmartMeal) => {
     const instructions = [
@@ -69,13 +196,19 @@ export function MealsScreen() {
     navigation.navigate('Cook', { dishName: meal.name, instructions });
   };
 
-  const generateForCategory = useCallback(async (catId: string) => {
+  const generateForCategory = useCallback(async (catId: string, excludeDish?: string) => {
     setSelectedCategory(catId);
     setLoading(true);
     setError(null);
-    setResult(null);
+    if (!excludeDish) {
+      setResult(null);
+    }
     try {
-      const res = await api.getSmartMeals(catId, userPrompt.trim() || undefined);
+      const res = await api.getSmartMeals(
+        catId,
+        userPrompt.trim() || undefined,
+        excludeDish,
+      );
       const categories: MealCategory[] = res.categories || [];
       const match = categories.find((c) => c.id === catId) || categories[0] || null;
       setResult(match);
@@ -91,14 +224,24 @@ export function MealsScreen() {
     setSelectedCategory(null);
     setResult(null);
     setError(null);
+    refreshHistory();
   };
 
   const activeCat = CATEGORIES.find((c) => c.id === selectedCategory);
 
   return (
-    <ScrollView style={styles.container} contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
-      {/* Header */}
-      <View style={[styles.header, activeCat ? { backgroundColor: activeCat.color } : {}]}>
+    <ScrollView
+      style={styles.container}
+      contentContainerStyle={[styles.scrollContent, { paddingBottom: layout.tabBarHeight + insets.bottom + 24 }]}
+      showsVerticalScrollIndicator={false}
+    >
+      <View
+        style={[
+          styles.header,
+          { paddingTop: insets.top + 14 },
+          activeCat ? { backgroundColor: activeCat.color } : {},
+        ]}
+      >
         <View style={styles.headerContent}>
           {selectedCategory && (
             <Pressable onPress={goBack} style={styles.backRow}>
@@ -115,7 +258,6 @@ export function MealsScreen() {
         </View>
       </View>
 
-      {/* Category selection */}
       {!selectedCategory && !loading && (
         <>
           <View style={styles.promptWrap}>
@@ -135,24 +277,23 @@ export function MealsScreen() {
 
           <Text variant="titleMedium" style={styles.sectionLabel}>What are you looking for?</Text>
 
-          {CATEGORIES.map((cat) => (
-            <Pressable key={cat.id} onPress={() => generateForCategory(cat.id)}>
-              <Surface style={styles.catCard} elevation={1}>
-                <View style={[styles.catIcon, { backgroundColor: cat.bg }]}>
-                  <IconButton icon={cat.icon} iconColor={cat.color} size={26} style={{ margin: 0 }} />
-                </View>
-                <View style={styles.catText}>
-                  <Text variant="titleSmall" style={styles.catTitle}>{cat.title}</Text>
-                  <Text variant="bodySmall" style={styles.catSub}>{cat.subtitle}</Text>
-                </View>
-                <IconButton icon="chevron-right" iconColor="#ccc" size={22} style={{ margin: 0 }} />
-              </Surface>
-            </Pressable>
-          ))}
+          <View style={styles.grid}>
+            {CATEGORIES.map((cat) => (
+              <CategoryBox
+                key={cat.id}
+                icon={cat.icon}
+                label={cat.title}
+                subtitle={cat.subtitle}
+                color={cat.color}
+                bg={cat.bg}
+                onPress={() => generateForCategory(cat.id)}
+              />
+            ))}
+          </View>
+
         </>
       )}
 
-      {/* Loading */}
       {loading && (
         <View style={styles.loadingWrap}>
           <Surface style={styles.loadingCard} elevation={2}>
@@ -167,13 +308,20 @@ export function MealsScreen() {
         </View>
       )}
 
-      {/* Error */}
       {error && !loading && (
         <Surface style={styles.errorCard} elevation={1}>
           <IconButton icon="alert-circle" iconColor="#C62828" size={28} style={{ margin: 0 }} />
           <Text variant="bodyMedium" style={styles.errorText}>{error}</Text>
           <View style={styles.errorActions}>
-            <Button mode="contained" compact onPress={() => selectedCategory && generateForCategory(selectedCategory)} buttonColor="#C62828">
+            <Button
+              mode="contained"
+              compact
+              onPress={() =>
+                selectedCategory &&
+                generateForCategory(selectedCategory, result?.meals?.[0]?.name)
+              }
+              buttonColor="#C62828"
+            >
               Retry
             </Button>
             <Button mode="text" compact onPress={goBack} textColor="#888">Back</Button>
@@ -181,10 +329,8 @@ export function MealsScreen() {
         </Surface>
       )}
 
-      {/* Results */}
       {result && !loading && (
         <View style={styles.resultWrap}>
-          {/* Preference + regenerate */}
           <View style={styles.regenRow}>
             <TextInput
               mode="outlined"
@@ -200,7 +346,10 @@ export function MealsScreen() {
                 <TextInput.Icon
                   icon="refresh"
                   color={activeCat?.color}
-                  onPress={() => selectedCategory && generateForCategory(selectedCategory)}
+                  onPress={() =>
+                    selectedCategory &&
+                    generateForCategory(selectedCategory, result?.meals?.[0]?.name)
+                  }
                 />
               }
             />
@@ -212,7 +361,6 @@ export function MealsScreen() {
             </Chip>
           )}
 
-          {/* Meal cards */}
           {result.meals?.map((meal, idx) => (
             <Card key={idx} style={styles.mealCard} mode="elevated">
               <Card.Content>
@@ -277,7 +425,10 @@ export function MealsScreen() {
           ))}
 
           <Pressable
-            onPress={() => selectedCategory && generateForCategory(selectedCategory)}
+            onPress={() =>
+              selectedCategory &&
+              generateForCategory(selectedCategory, result?.meals?.[0]?.name)
+            }
             style={[styles.regenBtn, { backgroundColor: activeCat?.color || '#FF9800' }]}
           >
             <IconButton icon="refresh" iconColor="#fff" size={18} style={{ margin: 0 }} />
@@ -286,7 +437,135 @@ export function MealsScreen() {
         </View>
       )}
 
+      {!loading && (
+        <View style={styles.historySection}>
+          <View style={styles.historyHeader}>
+            <View style={styles.historyHeaderText}>
+              <Text variant="titleMedium" style={styles.historyTitle}>What you ate</Text>
+              <Text variant="bodySmall" style={styles.historySubtitle}>Last 15 days</Text>
+            </View>
+            <Button
+              mode="contained"
+              icon="plus"
+              compact
+              onPress={openAddMeal}
+              buttonColor="#FF9800"
+              style={styles.addMealBtn}
+              contentStyle={styles.addMealBtnContent}
+            >
+              Add meal
+            </Button>
+          </View>
+          {mealHistory.length === 0 ? (
+            <Surface style={styles.historyEmpty} elevation={0}>
+              <IconButton icon="silverware-fork-knife" iconColor="#bbb" size={32} style={{ margin: 0 }} />
+              <Text variant="bodySmall" style={styles.historyEmptyText}>
+                Log what you actually ate — separate from AI meal ideas above.
+              </Text>
+              <Button mode="outlined" icon="plus" onPress={openAddMeal} style={styles.historyEmptyBtn} textColor="#FF9800">
+                Add your first meal
+              </Button>
+            </Surface>
+          ) : (
+            mealHistory.map((entry) => (
+              <Surface key={entry.id} style={styles.historyRow} elevation={0}>
+                <View style={[styles.historyDot, { backgroundColor: '#FF9800' }]} />
+                <View style={styles.historyBody}>
+                  <Text variant="bodyMedium" style={styles.historyName} numberOfLines={1}>
+                    {entry.dish_name}
+                  </Text>
+                  <Text variant="bodySmall" style={styles.historyMeta}>
+                    {entry.cooked_on}
+                    {entry.meal_slot ? ` · ${entry.meal_slot}` : ''}
+                  </Text>
+                </View>
+                {entry.source !== 'manual' ? (
+                  <Chip compact style={styles.sourceChip} textStyle={styles.sourceChipText}>
+                    {SOURCE_LABELS[entry.source] || entry.source}
+                  </Chip>
+                ) : null}
+              </Surface>
+            ))
+          )}
+        </View>
+      )}
+
       <View style={{ height: 32 }} />
+
+      <Portal>
+        <Modal
+          visible={addModalVisible}
+          onDismiss={closeAddMeal}
+          contentContainerStyle={styles.addModal}
+        >
+          <Text variant="titleLarge" style={styles.addModalTitle}>Add meal</Text>
+          <Text variant="bodySmall" style={styles.addModalSub}>
+            What you actually ate — saved for the last 15 days.
+          </Text>
+          <Divider style={styles.addModalDivider} />
+
+          <TextInput
+            label="Dish name"
+            value={addDishName}
+            onChangeText={setAddDishName}
+            mode="outlined"
+            style={styles.addModalInput}
+            placeholder="e.g. Dal, rice & sabzi"
+            autoFocus
+          />
+
+          <Text variant="labelMedium" style={styles.slotLabel}>Meal (optional)</Text>
+          <View style={styles.slotRow}>
+            {MEAL_SLOTS.map((slot) => {
+              const selected = addMealSlot === slot.id;
+              return (
+                <Chip
+                  key={slot.id}
+                  compact
+                  selected={selected}
+                  onPress={() => setAddMealSlot(selected ? '' : slot.id)}
+                  style={[styles.slotChip, selected && styles.slotChipSelected]}
+                  textStyle={selected ? styles.slotChipTextSelected : styles.slotChipText}
+                >
+                  {slot.label}
+                </Chip>
+              );
+            })}
+          </View>
+
+          <TextInput
+            label="Date eaten"
+            value={addCookedOn}
+            onChangeText={setAddCookedOn}
+            mode="outlined"
+            style={styles.addModalInput}
+            placeholder="YYYY-MM-DD"
+          />
+
+          <TextInput
+            label="Notes (optional)"
+            value={addNotes}
+            onChangeText={setAddNotes}
+            mode="outlined"
+            style={styles.addModalInput}
+            placeholder="e.g. light dinner, guest portion"
+            multiline
+          />
+
+          {addError ? (
+            <Text variant="bodySmall" style={styles.addModalError}>{addError}</Text>
+          ) : null}
+
+          <View style={styles.addModalActions}>
+            <Button mode="outlined" onPress={closeAddMeal} disabled={addSaving}>
+              Cancel
+            </Button>
+            <Button mode="contained" onPress={handleAddMeal} loading={addSaving} buttonColor="#FF9800">
+              Save
+            </Button>
+          </View>
+        </Modal>
+      </Portal>
     </ScrollView>
   );
 }
@@ -309,33 +588,193 @@ const styles = StyleSheet.create({
   headerTitle: { color: '#fff', fontWeight: '800' },
   headerSub: { color: 'rgba(255,255,255,0.85)', marginTop: 4 },
 
-  promptWrap: { paddingHorizontal: 20, paddingTop: 16 },
+  promptWrap: { paddingHorizontal: GRID_PAD, paddingTop: 16 },
   promptInput: { backgroundColor: '#fff' },
 
-  sectionLabel: { fontWeight: '700', color: '#333', paddingHorizontal: 20, marginTop: 20, marginBottom: 10 },
-
-  catCard: {
-    marginHorizontal: 20,
+  sectionLabel: {
+    fontWeight: '700',
+    color: '#333',
+    paddingHorizontal: GRID_PAD,
+    marginTop: 20,
     marginBottom: 10,
-    borderRadius: 16,
-    backgroundColor: '#fff',
+  },
+
+  grid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    paddingHorizontal: GRID_PAD - GRID_GAP / 2,
+  },
+  gridItem: {
+    width: '50%',
+    padding: GRID_GAP / 2,
+  },
+  gridSurface: {
+    borderRadius: 20,
+    padding: 16,
+    minHeight: 128,
+    justifyContent: 'center',
+  },
+  gridIconWrap: {
+    alignSelf: 'flex-start',
+    marginBottom: 8,
+  },
+  gridLabel: {
+    fontWeight: '700',
+    fontSize: 15,
+  },
+  gridSub: {
+    color: '#666',
+    marginTop: 4,
+    lineHeight: 17,
+    fontSize: 12,
+  },
+
+  historySection: {
+    paddingHorizontal: GRID_PAD,
+    marginTop: 24,
+    marginBottom: 8,
+  },
+  historyHeader: {
     flexDirection: 'row',
     alignItems: 'center',
-    padding: 14,
+    justifyContent: 'space-between',
+    marginBottom: 12,
+    gap: 12,
   },
-  catIcon: {
-    width: 48,
-    height: 48,
-    borderRadius: 14,
-    justifyContent: 'center',
+  historyHeaderText: {
+    flex: 1,
+  },
+  historyTitle: {
+    fontWeight: '700',
+    color: '#333',
+  },
+  historySubtitle: {
+    color: '#888',
+    marginTop: 2,
+  },
+  addMealBtn: {
+    borderRadius: 10,
+  },
+  addMealBtnContent: {
+    paddingHorizontal: 4,
+  },
+  historyEmpty: {
     alignItems: 'center',
-    marginRight: 14,
+    padding: 24,
+    borderRadius: 16,
+    backgroundColor: '#fff',
+    borderWidth: 1,
+    borderColor: '#EEE',
   },
-  catText: { flex: 1 },
-  catTitle: { fontWeight: '700', color: '#333' },
-  catSub: { color: '#888', marginTop: 2 },
+  historyEmptyText: {
+    color: '#999',
+    marginTop: 8,
+    textAlign: 'center',
+    lineHeight: 18,
+    paddingHorizontal: 8,
+  },
+  historyEmptyBtn: {
+    marginTop: 16,
+    borderColor: '#FF9800',
+  },
+  addModal: {
+    backgroundColor: '#fff',
+    marginHorizontal: 20,
+    borderRadius: 20,
+    padding: 20,
+    maxWidth: 440,
+    alignSelf: 'center',
+    width: '100%',
+  },
+  addModalTitle: {
+    fontWeight: '800',
+    color: '#333',
+  },
+  addModalSub: {
+    color: '#888',
+    marginTop: 4,
+    lineHeight: 18,
+  },
+  addModalDivider: {
+    marginVertical: 14,
+  },
+  addModalInput: {
+    marginBottom: 12,
+    backgroundColor: '#fff',
+  },
+  slotLabel: {
+    color: '#666',
+    marginBottom: 8,
+  },
+  slotRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+    marginBottom: 12,
+  },
+  slotChip: {
+    backgroundColor: '#F5F5F5',
+  },
+  slotChipSelected: {
+    backgroundColor: '#FFF3E0',
+  },
+  slotChipText: {
+    fontSize: 12,
+    color: '#666',
+  },
+  slotChipTextSelected: {
+    fontSize: 12,
+    color: '#E65100',
+  },
+  addModalError: {
+    color: '#C62828',
+    marginBottom: 8,
+  },
+  addModalActions: {
+    flexDirection: 'row',
+    justifyContent: 'flex-end',
+    gap: 10,
+    marginTop: 4,
+  },
+  historyRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#fff',
+    borderRadius: 14,
+    padding: 12,
+    marginBottom: 8,
+    borderWidth: 1,
+    borderColor: '#F0F0F0',
+  },
+  historyDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    marginRight: 12,
+  },
+  historyBody: {
+    flex: 1,
+    marginRight: 8,
+  },
+  historyName: {
+    fontWeight: '600',
+    color: '#333',
+  },
+  historyMeta: {
+    color: '#999',
+    marginTop: 2,
+    fontSize: 11,
+  },
+  sourceChip: {
+    backgroundColor: '#FFF3E0',
+    height: 26,
+  },
+  sourceChipText: {
+    fontSize: 10,
+    color: '#E65100',
+  },
 
-  loadingWrap: { paddingHorizontal: 20, paddingTop: 40 },
+  loadingWrap: { paddingHorizontal: GRID_PAD, paddingTop: 40 },
   loadingCard: {
     borderRadius: 20,
     backgroundColor: '#fff',
@@ -346,7 +785,7 @@ const styles = StyleSheet.create({
   loadingSub: { marginTop: 6, color: '#999' },
 
   errorCard: {
-    margin: 20,
+    margin: GRID_PAD,
     borderRadius: 16,
     backgroundColor: '#FFEBEE',
     padding: 20,
@@ -355,8 +794,7 @@ const styles = StyleSheet.create({
   errorText: { color: '#C62828', marginTop: 8, textAlign: 'center' },
   errorActions: { flexDirection: 'row', gap: 12, marginTop: 16 },
 
-  resultWrap: { paddingHorizontal: 20, paddingTop: 4 },
-
+  resultWrap: { paddingHorizontal: GRID_PAD, paddingTop: 4 },
   regenRow: { marginBottom: 12 },
   regenInput: { backgroundColor: '#fff' },
   invChip: { alignSelf: 'flex-start', marginBottom: 12, backgroundColor: '#E8F5E9' },

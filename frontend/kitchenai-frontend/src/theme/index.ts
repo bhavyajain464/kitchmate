@@ -67,4 +67,11 @@ export const colors = {
   scanLight: '#F3E5F5',
 } as const;
 
+// Shared layout constants. `tabBarHeight` must match
+// `AppNavigator.styles.tabBar.height` and is consumed by every tab screen to
+// size bottom padding consistently.
+export const layout = {
+  tabBarHeight: 64,
+} as const;
+
 export type AppTheme = typeof theme;

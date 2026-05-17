@@ -18,19 +18,31 @@ import {
   Surface,
   Button,
   ActivityIndicator,
+  Icon,
 } from 'react-native-paper';
 import { useRoute } from '@react-navigation/native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as api from '../services/api';
 import { CookProfile } from '../types';
+import { layout } from '../theme';
+import { MessageComposer } from '../components/MessageComposer';
 
 interface SentMessage {
-  dish: string;
-  instructions: string;
+  text: string;
   time: string;
+}
+
+const COOK_ACCENT = '#128C7E';
+const COOK_BORDER = '#B2DFDB';
+
+function primaryDishFromMessage(message: string): string {
+  const line = message.trim().split('\n')[0]?.trim() || '';
+  return line.split(/[,;]/)[0]?.trim() || line;
 }
 
 export function CookScreen() {
   const route = useRoute<any>();
+  const insets = useSafeAreaInsets();
   const scrollRef = useRef<ScrollViewType>(null);
   const [cookProfile, setCookProfile] = useState<CookProfile | null>(null);
   const [profileLoading, setProfileLoading] = useState(true);
@@ -43,14 +55,15 @@ export function CookScreen() {
   const [pendingSendAfterSave, setPendingSendAfterSave] = useState(false);
   const [savingProfile, setSavingProfile] = useState(false);
 
-  const [dishName, setDishName] = useState('');
-  const [instructions, setInstructions] = useState('');
+  const [message, setMessage] = useState('');
   const [sending, setSending] = useState(false);
   const [sentMessages, setSentMessages] = useState<SentMessage[]>([]);
 
   useEffect(() => {
-    if (route.params?.dishName) setDishName(route.params.dishName);
-    if (route.params?.instructions) setInstructions(route.params.instructions);
+    const parts: string[] = [];
+    if (route.params?.dishName) parts.push(String(route.params.dishName).trim());
+    if (route.params?.instructions) parts.push(String(route.params.instructions).trim());
+    if (parts.length > 0) setMessage(parts.join('\n'));
   }, [route.params?.dishName, route.params?.instructions]);
 
   const loadProfile = useCallback(async () => {
@@ -120,14 +133,14 @@ export function CookScreen() {
       });
       await loadProfile();
       setIsEditingProfile(false);
-      const shouldSendAfterSave = pendingSendAfterSave && dishName.trim() && phoneDraft.trim();
+      const shouldSendAfterSave = pendingSendAfterSave && message.trim() && phoneDraft.trim();
       setPendingSendAfterSave(false);
       const msg = shouldSendAfterSave
         ? 'Cook profile saved. Opening WhatsApp with your draft.'
         : 'Cook profile saved. WhatsApp will use this name and number.';
       Platform.OS === 'web' ? window.alert(msg) : Alert.alert('Saved', msg);
       if (shouldSendAfterSave) {
-        await sendCurrentDishToCook();
+        await sendCurrentMessageToCook();
       }
     } catch {
       const msg = 'Could not save cook profile.';
@@ -139,16 +152,15 @@ export function CookScreen() {
 
   const dishesKnown = cookProfile?.dishes_known || [];
 
-  const sendCurrentDishToCook = async () => {
-    const dish = dishName.trim();
-    if (!dish) return;
+  const sendCurrentMessageToCook = async () => {
+    const text = message.trim();
+    const phone = cookProfile?.phone_number?.trim();
+    if (!text || !phone) return;
 
     setSending(true);
     try {
-      const ingredients = [{ name: dish, quantity: 1, unit: 'dish' }];
-      const result = await api.sendMealSuggestion(dish, ingredients, 30, {
-        instructions: instructions.trim() || undefined,
-      });
+      const dishName = primaryDishFromMessage(text);
+      const result = await api.sendWhatsAppMessage(phone, text, dishName);
 
       if (result.whatsapp_url) {
         if (Platform.OS === 'web') {
@@ -159,16 +171,15 @@ export function CookScreen() {
       }
 
       const now = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-      setSentMessages((prev) => [{ dish, instructions: instructions.trim(), time: now }, ...prev]);
+      setSentMessages((prev) => [{ text, time: now }, ...prev]);
+      setMessage('');
 
-      const msg = result.whatsapp_url
-        ? `WhatsApp opened with a draft for "${dish}". Send it from your phone when ready.`
-        : `Prepared "${dish}" (no WhatsApp link returned).`;
-      Platform.OS === 'web' ? window.alert(msg) : Alert.alert('Sent!', msg);
-      setDishName('');
-      setInstructions('');
+      if (!result.whatsapp_url) {
+        const msg = 'Could not build a WhatsApp link. Check the cook number in your profile.';
+        Platform.OS === 'web' ? window.alert(msg) : Alert.alert('Failed', msg);
+      }
     } catch {
-      const msg = 'Could not prepare WhatsApp link. Save the cook WhatsApp number in Cook profile.';
+      const msg = 'Could not open WhatsApp. Save the cook number in Cook profile below.';
       Platform.OS === 'web' ? window.alert(msg) : Alert.alert('Failed', msg);
     } finally {
       setSending(false);
@@ -176,8 +187,7 @@ export function CookScreen() {
   };
 
   const handleSendToCook = async () => {
-    const dish = dishName.trim();
-    if (!dish) return;
+    if (!message.trim()) return;
 
     if (!profileHasPhone) {
       setPendingSendAfterSave(true);
@@ -187,86 +197,72 @@ export function CookScreen() {
       return;
     }
 
-    await sendCurrentDishToCook();
+    await sendCurrentMessageToCook();
   };
 
-  const isKnown = (dish: string) =>
-    dishesKnown.some((d) => d.toLowerCase().includes(dish.toLowerCase()) || dish.toLowerCase().includes(d.toLowerCase()));
+  const dishGuess = primaryDishFromMessage(message);
+  const isKnownDish = (dish: string) =>
+    dishesKnown.some(
+      (d) =>
+        d.toLowerCase().includes(dish.toLowerCase()) ||
+        dish.toLowerCase().includes(d.toLowerCase()),
+    );
 
   return (
     <ScrollView
       ref={scrollRef}
       style={styles.container}
-      contentContainerStyle={styles.scrollContent}
+      contentContainerStyle={[styles.scrollContent, { paddingBottom: layout.tabBarHeight + insets.bottom + 24 }]}
       refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
       showsVerticalScrollIndicator={false}
     >
       {/* Header */}
-      <View style={styles.header}>
+      <View style={[styles.header, { paddingTop: insets.top + 14 }]}>
         <IconButton icon="chef-hat" iconColor="rgba(255,255,255,0.4)" size={40} style={styles.headerBg} />
         <Text variant="headlineSmall" style={styles.headerTitle}>Cook Communication</Text>
-        <Text variant="bodyMedium" style={styles.headerSub}>Open WhatsApp on your phone with a draft for the cook</Text>
       </View>
 
-      {/* Send Instructions Card */}
-      <Surface style={styles.sendCard} elevation={2}>
-        <Text variant="titleSmall" style={styles.cardLabel}>What should the cook make?</Text>
+      {/* Message to cook */}
+      <Surface style={styles.sendCard} elevation={1}>
+        <View style={styles.sendTitleRow}>
+          <View style={styles.sendTitleIcon}>
+            <Icon source="whatsapp" size={18} color={COOK_ACCENT} />
+          </View>
+          <View style={styles.sendTitleText}>
+            <Text variant="titleSmall" style={styles.sendTitle}>
+              Message your cook
+            </Text>
+          </View>
+        </View>
 
-        <TextInput
-          mode="outlined"
-          placeholder="Dish name, e.g. Paneer Butter Masala"
-          value={dishName}
-          onChangeText={setDishName}
-          style={styles.input}
-          dense
-          outlineColor="#E0E0E0"
-          activeOutlineColor="#25D366"
-          outlineStyle={{ borderRadius: 12 }}
-          left={<TextInput.Icon icon="food" color="#bbb" />}
+        <MessageComposer
+          value={message}
+          onChangeText={setMessage}
+          onSubmit={handleSendToCook}
+          placeholder="e.g. Paneer butter masala, medium spicy, less oil"
+          loading={sending}
+          disabled={sending}
+          accentColor={COOK_ACCENT}
+          borderColor={COOK_BORDER}
+          submitIcon="whatsapp"
+          accessibilityLabel="Send to cook on WhatsApp"
         />
 
-        {dishName.trim() !== '' && (
+        {dishGuess !== '' && (
           <View style={styles.knownRow}>
-            {isKnown(dishName) ? (
+            {isKnownDish(dishGuess) ? (
               <Surface style={[styles.knownBadge, { backgroundColor: '#E8F5E9' }]} elevation={0}>
                 <IconButton icon="check-circle" iconColor="#2E7D32" size={16} style={{ margin: 0 }} />
-                <Text style={styles.knownText}>Cook knows this dish</Text>
+                <Text style={styles.knownText}>Cook knows “{dishGuess}”</Text>
               </Surface>
             ) : (
               <Surface style={[styles.knownBadge, { backgroundColor: '#FFF3E0' }]} elevation={0}>
                 <IconButton icon="alert-circle-outline" iconColor="#E65100" size={16} style={{ margin: 0 }} />
-                <Text style={styles.unknownText}>Cook may not know this — add detailed instructions</Text>
+                <Text style={styles.unknownText}>Add details if the cook may not know this dish</Text>
               </Surface>
             )}
           </View>
         )}
-
-        <TextInput
-          mode="outlined"
-          placeholder="Special instructions, e.g. make it spicy, less oil..."
-          value={instructions}
-          onChangeText={setInstructions}
-          multiline
-          numberOfLines={3}
-          style={styles.input}
-          outlineColor="#E0E0E0"
-          activeOutlineColor="#25D366"
-          outlineStyle={{ borderRadius: 12 }}
-          left={<TextInput.Icon icon="message-text-outline" color="#bbb" />}
-        />
-
-        <Button
-          mode="contained"
-          icon="whatsapp"
-          onPress={handleSendToCook}
-          loading={sending}
-          disabled={sending || !dishName.trim()}
-          buttonColor="#25D366"
-          style={styles.sendBtn}
-          contentStyle={{ paddingVertical: 4 }}
-        >
-          Send to cook (WhatsApp)
-        </Button>
       </Surface>
 
       {/* Cook Profile — name & number used for WhatsApp */}
@@ -432,7 +428,7 @@ export function CookScreen() {
           </Text>
           <View style={styles.dishesGrid}>
             {dishesKnown.map((dish, i) => (
-              <Pressable key={i} onPress={() => setDishName(dish)}>
+              <Pressable key={i} onPress={() => setMessage(dish)}>
                 <Chip compact icon="check" style={styles.dishChip} textStyle={styles.dishChipText}>{dish}</Chip>
               </Pressable>
             ))}
@@ -449,10 +445,9 @@ export function CookScreen() {
             <Surface key={i} style={styles.historyCard} elevation={0}>
               <View style={styles.historyDot} />
               <View style={styles.historyInfo}>
-                <Text variant="bodyMedium" style={styles.historyDish}>{msg.dish}</Text>
-                {msg.instructions ? (
-                  <Text variant="bodySmall" style={styles.historyInst} numberOfLines={2}>{msg.instructions}</Text>
-                ) : null}
+                <Text variant="bodyMedium" style={styles.historyDish} numberOfLines={3}>
+                  {msg.text}
+                </Text>
               </View>
               <Text variant="labelSmall" style={styles.historyTime}>{msg.time}</Text>
             </Surface>
@@ -480,24 +475,39 @@ const styles = StyleSheet.create({
   },
   headerBg: { position: 'absolute', top: 8, right: 8, opacity: 0.15 },
   headerTitle: { color: '#fff', fontWeight: '800' },
-  headerSub: { color: 'rgba(255,255,255,0.85)', marginTop: 4 },
 
   sendCard: {
     marginHorizontal: 20,
     marginTop: -12,
-    borderRadius: 18,
+    borderRadius: 16,
     backgroundColor: '#fff',
-    padding: 18,
+    padding: 14,
+    borderWidth: 1,
+    borderColor: '#E0F2F1',
   },
+  sendTitleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    marginBottom: 10,
+  },
+  sendTitleIcon: {
+    width: 36,
+    height: 36,
+    borderRadius: 10,
+    backgroundColor: '#E0F2F1',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  sendTitleText: { flex: 1 },
+  sendTitle: { fontWeight: '700', color: '#00695C' },
   cardLabel: { fontWeight: '700', color: '#333', marginBottom: 12 },
   input: { backgroundColor: '#fff', marginBottom: 10 },
 
-  knownRow: { marginBottom: 10 },
+  knownRow: { marginTop: 8 },
   knownBadge: { flexDirection: 'row', alignItems: 'center', paddingVertical: 6, paddingHorizontal: 10, borderRadius: 10, gap: 2 },
   knownText: { color: '#2E7D32', fontSize: 12, fontWeight: '600' },
   unknownText: { color: '#E65100', fontSize: 12, fontWeight: '600', flex: 1 },
-
-  sendBtn: { borderRadius: 12, marginTop: 4 },
 
   profileCard: {
     marginHorizontal: 20,
@@ -583,6 +593,5 @@ const styles = StyleSheet.create({
   historyDot: { width: 8, height: 8, borderRadius: 4, backgroundColor: '#25D366', marginRight: 12 },
   historyInfo: { flex: 1 },
   historyDish: { fontWeight: '600', color: '#333' },
-  historyInst: { color: '#888', marginTop: 2 },
   historyTime: { color: '#bbb' },
 });

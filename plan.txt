@@ -24,6 +24,21 @@ Managing a household kitchen in urban India involves high cognitive load due to 
 *   **Pre-Market Ping:** Automatically ask the cook what’s running low before the user goes to the market.
 *   **Smart Shopping List:** Generate a list that only includes what is truly missing, cross-referencing current stock.
 
+### **Phase 3: Cultural Grounding & Conversational Input**
+*   **Curated Household Dish Library (50–60 dishes):** Seed a `dishes_catalog` of common Indian (Bengaluru-leaning) household dishes — dal tadka, rajma chawal, bisi bele bath, sambar rice, jeera rice, chapati + sabzi combos, upma, poha, idli/dosa, pulao, khichdi, etc. Each row carries `cuisine`, `region`, `primary_ingredients[]`, `cook_time_min`, `complexity_tier (easy|medium|hard)`, `meal_slot (breakfast|lunch|dinner|snack)`. The LLM is constrained to recommend **from this catalog first**, only extending into novel dishes when (a) the cook's `dishes_known` array adds them, or (b) the user explicitly asks for "something new". This dramatically reduces AI hallucination (no "quinoa-stuffed avocado tacos" suggestions for a household that eats sambar daily).
+*   **15-Day Cooked History:** New `cooked_log` table (`user_id`, `dish_id`, `cooked_on`, `meal_slot`, `portions`, `source: ai-suggested | manual | cook-reported`). Powers:
+    *   *Variety signal to AI:* "avoid dishes cooked in the last 5 days" and "rotate complexity tiers across the week".
+    *   *Diet view in app:* simple weekly bar — protein-heavy / grain-heavy / veg-heavy days — so the user can spot imbalances at a glance.
+    *   *Cook performance:* highlights which `dishes_known` are actually being used vs. dormant.
+*   **WhatsApp Share-In (Inbound Bridge):** Today the bridge is **one-way out** (user → cook via `wa.me`). Add a one-way in path so the user can forward a WhatsApp message into Kitchen AI and have it acted upon.
+    *   *Android:* register an intent filter for `ACTION_SEND` + `text/plain` so "Kitchen AI" appears in WhatsApp's native share sheet.
+    *   *iOS:* ship a Share Extension target with the same behaviour.
+    *   *Backend NLU pipeline:* the shared text hits a new endpoint `POST /v1/whatsapp/parse`. Groq/Gemini classifies intent (`add_to_shopping_list`, `mark_out_of_stock`, `report_cooked_dish`, `note_dislike`) and extracts entities — works for Hinglish/Hindi/Kannada phrasing like:
+        *   "bhaiya daal khatm ho gayi" → `add_to_shopping_list(item="toor dal", qty="default")` + `mark_out_of_stock(item="toor dal")`
+        *   "aaj rajma banaya" → `report_cooked_dish(dish="rajma chawal", meal_slot="lunch")`
+        *   "tomato 2 kg laana" → `add_to_shopping_list(item="tomato", qty="2 kg")`
+    *   *UX:* the user must review original text vs proposed action and check an explicit approval box before anything is committed (no auto-apply).
+
 ---
 
 ## 3. System Design
@@ -45,6 +60,9 @@ The system follows a **Model Context Protocol (MCP)** architecture to ensure the
 *   **`Inventory` Table:** `item_id`, `canonical_name`, `qty`, `unit`, `estimated_expiry`, `is_manual`.
 *   **`User_Prefs` Table:** `dislikes` (array), `dietary_tags`, `fav_cuisines`.
 *   **`Cook_Profile` Table:** `cook_id`, optional `cook_name`, `dishes_known` (array), `preferred_lang`, `phone_number` (for `wa.me`), optional `user_id`.
+*   **`Dishes_Catalog` Table (Phase 3):** `dish_id`, `name`, `cuisine`, `region`, `primary_ingredients[]`, `cook_time_min`, `complexity_tier`, `meal_slot`, `is_seed` (true for the curated 50–60). Used as a retrieval base for the LLM.
+*   **`Cooked_Log` Table (Phase 3):** `id`, `user_id`, `dish_id`, `cooked_on` (date), `meal_slot`, `portions`, `source` (`ai-suggested|manual|cook-reported|whatsapp-parsed`).
+*   **`Whatsapp_Inbound` Table (Phase 3, optional audit):** `id`, `user_id`, `raw_text`, `parsed_intent`, `parsed_entities (jsonb)`, `confidence`, `acted_on`, `created_at`. Lets us debug the NLU pipeline and let users review history of forwarded chats.
 
 #### **B. The "Fast vs. Deep" Processing Path**
 *   **Fast Path (<500ms):** Simple CRUD operations (e.g., ticking off "Buy Milk" in the market). Handled by the backend API directly.
@@ -62,6 +80,24 @@ The system follows a **Model Context Protocol (MCP)** architecture to ensure the
 | **Week 4** | **Reasoning Layer** | Develop the "Rescue Meal" logic that combines Expiry + Cook Skills. |
 | **Week 5** | **Frontend (App)** | Build the React Native UI for Android/iOS/Web using Expo. |
 | **Week 6** | **Beta Testing** | Launch "Human-in-the-loop" testing for a single Bangalore household. |
+| **Week 7** | **Dish Catalog Seed** | Seed `dishes_catalog` with 50–60 household dishes; wire LLM prompt to prefer this set. |
+| **Week 8** | **Cooked History** | Implement `cooked_log` writes from "approve menu" flow; add 15-day diet view in the app. |
+| **Week 9** | **WhatsApp Share-In** | Android intent filter + iOS Share Extension + `POST /v1/whatsapp/parse` endpoint with intent/entity extraction. |
+
+---
+
+## 5. Not Yet Implemented / Gaps
+
+These are items the design has called out but the codebase does not yet ship. Tracking them here so they don't get lost.
+
+*   **Google Translate (cook reply translation):** The Week 3 plan mentioned an optional Google translation layer for cook replies arriving in Kannada/Hindi/Tamil. Today the app only opens an outbound `wa.me` compose link — there is no inbound message ingestion, so translation has nothing to translate against yet. Pre-requisite: WhatsApp Share-In (Phase 3) lands first; then a per-message translate pass before NLU.
+*   **Auto-ingestion of cook's WhatsApp replies:** Replies still flow back inside the user's own WhatsApp; the app never sees them unless the user manually forwards (Phase 3 share-in). True auto-ingestion would need a Business API (Twilio / Meta Cloud API) and a registered template — explicitly deferred for now.
+*   **Push notifications:** "Rescue Meal" prompts and "Pre-Market Ping" are designed as push notifications but the app currently has no FCM/APNs registration or backend notifier service.
+*   **Voice input for vernacular households:** Speaking to the app in Hindi/Kannada (instead of typing) is a natural fit for non-English-first households but not yet planned beyond a note.
+*   **Shelf-life feedback loop polish:** The Kafka-driven shelf-life estimator now runs on `shelf-life-estimate` and writes back to `inventory.estimated_expiry`, but there is no surface in the app that signals "expiry was AI-estimated vs. user-entered". A small badge would build trust.
+*   **Cook-reported "cooked today" path:** `cooked_log.source = cook-reported` is in the schema for completeness, but actually capturing it requires the WhatsApp Share-In NLU (Phase 3) to recognise "aaj X banaya" intents.
+*   **Production secret hygiene:** `GROQ_API_KEY`, `GEMINI_API_KEY`, `DATABASE_URL`, and `SESSION_TOKEN_SECRET` are still injected as plain env vars on Cloud Run. Only `KAFKA_PASSWORD` and `KAFKA_CA_FILE` have been moved to GCP Secret Manager. Migrating the rest is a small, queued task.
+*   **Android Play Store distribution:** Production APK is currently sideload-only (Desktop). No Play Console listing, no internal testing track, no Play-signed AAB pipeline yet.
 
 ---
 

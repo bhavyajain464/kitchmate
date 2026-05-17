@@ -19,6 +19,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useAuth } from '../context/AuthContext';
 import * as api from '../services/api';
 import { InventoryItem, ExpiringItem } from '../types';
+import { MessageImportCard } from '../components/MessageImportCard';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 
@@ -59,7 +60,7 @@ export function HomeScreen({ navigation }: any) {
       setInventory(inv || []);
       setExpiringItems(exp || []);
       setExpiredItems(expd || []);
-      setShoppingCount(Array.isArray(shop) ? shop.filter((s: any) => !s.bought).length : 0);
+      setShoppingCount(shop.filter((s) => !s.bought).length);
     } catch {
       setInventory([]);
       setExpiringItems([]);
@@ -132,6 +133,8 @@ export function HomeScreen({ navigation }: any) {
         <ActivityIndicator style={{ marginTop: 40 }} size="large" />
       ) : (
         <>
+          <MessageImportCard />
+
           {/* ── Quick Actions Grid ────────────────────────── */}
           <Text variant="titleMedium" style={styles.sectionTitle}>Quick Actions</Text>
           <View style={styles.grid}>

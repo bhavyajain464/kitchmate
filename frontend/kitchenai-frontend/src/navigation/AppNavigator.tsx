@@ -12,6 +12,7 @@ import { CookScreen } from '../screens/CookScreen';
 import { ShoppingScreen } from '../screens/ShoppingScreen';
 import { ProfileScreen } from '../screens/ProfileScreen';
 import * as api from '../services/api';
+import { WhatsAppShareProvider } from '../components/WhatsAppShareHandler';
 
 const Tab = createBottomTabNavigator();
 
@@ -94,6 +95,7 @@ export function AppNavigator() {
   }
 
   return (
+    <WhatsAppShareProvider>
     <NavigationContainer linking={linking}>
       <Tab.Navigator
         screenOptions={({ route }) => ({
@@ -115,6 +117,7 @@ export function AppNavigator() {
         <Tab.Screen name="Profile" component={ProfileScreen} options={{ title: 'Profile' }} />
       </Tab.Navigator>
     </NavigationContainer>
+    </WhatsAppShareProvider>
   );
 }
 

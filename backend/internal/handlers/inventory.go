@@ -3,7 +3,9 @@ package handlers
 import (
 	"database/sql"
 	"encoding/json"
+	"log"
 	"net/http"
+	"sync"
 	"time"
 
 	kafkalib "kitchenai-backend/internal/kafka"
@@ -20,10 +22,66 @@ func getUserID(r *http.Request) string {
 	return ""
 }
 
+// expiredRetentionDays is the window for keeping items past their estimated_expiry
+// before they get auto-purged. Anything older is deleted opportunistically on read.
+const expiredRetentionDays = 7
+
+// purgeMinPeriod throttles per-user purges to once per day. With a 7-day
+// retention window this is more than fine — at most ~1 day of stale rows can
+// accumulate between purges, and the SELECT queries already filter them out
+// of the user's view. The cap means total DELETEs/day ≤ DAU.
+const purgeMinPeriod = 24 * time.Hour
+
+// purgeLastRun stores the last time a purge was scheduled for a given user.
+// Keyed by user_id, value is time.Time. Stale entries naturally age out as
+// users return; we don't bother evicting since the entry size is tiny.
+var purgeLastRun sync.Map
+
+// schedulePurgeStaleExpired fires an async purge if one hasn't run for this
+// user within purgeMinPeriod. It is safe to call from request handlers — the
+// caller is never blocked. The SELECT queries in GetInventory and
+// GetExpiredItems already filter stale rows out, so this is housekeeping only.
+func schedulePurgeStaleExpired(db *sql.DB, userID string) {
+	if userID == "" {
+		return
+	}
+	now := time.Now()
+	if prev, loaded := purgeLastRun.LoadOrStore(userID, now); loaded {
+		prevTime := prev.(time.Time)
+		if now.Sub(prevTime) < purgeMinPeriod {
+			return // recent purge — nothing to do
+		}
+		if !purgeLastRun.CompareAndSwap(userID, prevTime, now) {
+			return // another request claimed this slot
+		}
+	}
+	go purgeStaleExpired(db, userID)
+}
+
+// purgeStaleExpired deletes inventory items whose estimated_expiry is more than
+// `expiredRetentionDays` days in the past for the given user. Errors are logged
+// (best-effort) so a failed purge never affects callers.
+func purgeStaleExpired(db *sql.DB, userID string) {
+	res, err := db.Exec(`
+		DELETE FROM inventory
+		WHERE estimated_expiry IS NOT NULL
+			AND estimated_expiry < CURRENT_DATE - ($1 || ' days')::interval
+			AND (user_id = $2 OR user_id IS NULL)
+	`, expiredRetentionDays, userID)
+	if err != nil {
+		log.Printf("inventory: purgeStaleExpired failed for user=%s: %v", userID, err)
+		return
+	}
+	if n, _ := res.RowsAffected(); n > 0 {
+		log.Printf("inventory: purged %d stale expired item(s) for user=%s", n, userID)
+	}
+}
+
 // GetInventory returns non-expired inventory items for the authenticated user
 func GetInventory(db *sql.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		userID := getUserID(r)
+		schedulePurgeStaleExpired(db, userID)
 		rows, err := db.Query(`
 			SELECT item_id, canonical_name, qty, unit, estimated_expiry, is_manual, created_at, updated_at
 			FROM inventory
@@ -180,8 +238,10 @@ func CreateInventoryItem(db *sql.DB, producer *kafkalib.Producer) http.HandlerFu
 	}
 }
 
-// UpdateInventoryItem updates an existing inventory item
-func UpdateInventoryItem(db *sql.DB) http.HandlerFunc {
+// UpdateInventoryItem updates an existing inventory item. If the expiry is
+// cleared (sent as empty), it re-publishes a ShelfLifeEvent so the Kafka
+// consumer re-estimates shelf life via the LLM, mirroring the create path.
+func UpdateInventoryItem(db *sql.DB, producer *kafkalib.Producer) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		vars := mux.Vars(r)
 		id := vars["id"]
@@ -234,6 +294,14 @@ func UpdateInventoryItem(db *sql.DB) http.HandlerFunc {
 		if rowsAffected == 0 {
 			http.Error(w, "Item not found", http.StatusNotFound)
 			return
+		}
+
+		// If the expiry was cleared, ask the AI to re-estimate.
+		if expiry == nil && producer != nil {
+			producer.PublishShelfLifeEvent(kafkalib.ShelfLifeEvent{
+				ItemIDs: []string{id},
+				UserID:  userID,
+			})
 		}
 
 		w.Header().Set("Content-Type", "application/json")
@@ -330,10 +398,12 @@ func GetExpiringItems(db *sql.DB) http.HandlerFunc {
 	}
 }
 
-// GetExpiredItems returns items that have already expired
+// GetExpiredItems returns items that have already expired, limited to a rolling
+// `expiredRetentionDays`-day window. Anything older than that is purged on read.
 func GetExpiredItems(db *sql.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		userID := getUserID(r)
+		schedulePurgeStaleExpired(db, userID)
 		rows, err := db.Query(`
 			SELECT
 				item_id, canonical_name, qty, unit, estimated_expiry,
@@ -341,9 +411,10 @@ func GetExpiredItems(db *sql.DB) http.HandlerFunc {
 			FROM inventory
 			WHERE estimated_expiry IS NOT NULL
 				AND estimated_expiry < CURRENT_DATE
-				AND (user_id = $1 OR user_id IS NULL)
+				AND estimated_expiry >= CURRENT_DATE - ($1 || ' days')::interval
+				AND (user_id = $2 OR user_id IS NULL)
 			ORDER BY estimated_expiry DESC
-		`, userID)
+		`, expiredRetentionDays, userID)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return

@@ -6,6 +6,7 @@ import {
   Pressable,
   Alert,
   Platform,
+  Image,
 } from 'react-native';
 import {
   Text,
@@ -17,7 +18,10 @@ import {
   Checkbox,
   ActivityIndicator,
 } from 'react-native-paper';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as api from '../services/api';
+
+const logo = require('../../assets/icon.png');
 
 const STEPS = ['Welcome', 'Preferences', 'Kitchen Staples'];
 
@@ -104,6 +108,7 @@ interface OnboardingScreenProps {
 }
 
 export function OnboardingScreen({ onComplete }: OnboardingScreenProps) {
+  const insets = useSafeAreaInsets();
   const [step, setStep] = useState(0);
   const [saving, setSaving] = useState(false);
 
@@ -165,20 +170,24 @@ export function OnboardingScreen({ onComplete }: OnboardingScreenProps) {
   return (
     <View style={styles.container}>
       {/* Progress */}
-      <View style={styles.progressWrap}>
+      <View style={[styles.progressWrap, { paddingTop: insets.top + 12 }]}>
         <View style={styles.progressBar}>
           <View style={[styles.progressFill, { width: `${((step + 1) / STEPS.length) * 100}%` }]} />
         </View>
         <Text style={styles.progressText}>Step {step + 1} of {STEPS.length}</Text>
       </View>
 
-      <ScrollView style={styles.scroll} contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
+      <ScrollView
+        style={styles.scroll}
+        contentContainerStyle={[styles.scrollContent, { paddingBottom: insets.bottom + 24 }]}
+        showsVerticalScrollIndicator={false}
+      >
 
         {/* ── Step 0: Welcome ────────────────────────── */}
         {step === 0 && (
           <View style={styles.stepWrap}>
             <Surface style={styles.welcomeCard} elevation={2}>
-              <IconButton icon="silverware-fork-knife" iconColor="#4CAF50" size={48} style={{ margin: 0 }} />
+              <Image source={logo} style={styles.welcomeLogo} resizeMode="contain" />
               <Text variant="headlineMedium" style={styles.welcomeTitle}>Welcome to Kitchen AI</Text>
               <Text variant="bodyMedium" style={styles.welcomeDesc}>
                 Let's set up your kitchen in 2 quick steps. We'll personalize your meal suggestions and stock your pantry with essentials.
@@ -380,6 +389,7 @@ const styles = StyleSheet.create({
 
   // Welcome
   welcomeCard: { backgroundColor: '#fff', borderRadius: 20, padding: 32, alignItems: 'center', marginTop: 20 },
+  welcomeLogo: { width: 220, height: 176, borderRadius: 18, overflow: 'hidden', backgroundColor: '#000' },
   welcomeTitle: { fontWeight: '800', color: '#333', marginTop: 16, textAlign: 'center' },
   welcomeDesc: { color: '#888', marginTop: 10, textAlign: 'center', lineHeight: 22 },
   featureList: { marginTop: 28, gap: 14 },
