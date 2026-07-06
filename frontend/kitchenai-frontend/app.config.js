@@ -1,5 +1,6 @@
 const { loadAppEnv } = require('./loadEnv');
 
-loadAppEnv(__dirname);
-
-module.exports = require('./app.json');
+module.exports = ({ config }) => {
+  loadAppEnv(__dirname);
+  return config;
+};
