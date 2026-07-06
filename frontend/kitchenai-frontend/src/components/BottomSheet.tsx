@@ -14,6 +14,7 @@ import {
 } from 'react-native';
 import { IconButton, Portal, Text } from 'react-native-paper';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useWebScrollViewGuard } from '../hooks/useWebScrollViewGuard';
 import { palette } from '../theme';
 
 const SCREEN_HEIGHT = Dimensions.get('window').height;
@@ -30,6 +31,7 @@ type Props = {
   maxHeightRatio?: number;
   sheetStyle?: ViewStyle;
   scrollable?: boolean;
+  footerStyle?: ViewStyle;
 };
 
 export function BottomSheet({
@@ -43,6 +45,7 @@ export function BottomSheet({
   maxHeightRatio = 0.88,
   sheetStyle,
   scrollable = true,
+  footerStyle,
 }: Props) {
   const insets = useSafeAreaInsets();
   const slideAnim = useRef(new Animated.Value(SCREEN_HEIGHT)).current;
@@ -51,6 +54,11 @@ export function BottomSheet({
   const [mounted, setMounted] = useState(visible);
   const dismissDisabledRef = useRef(dismissDisabled);
   const onDismissRef = useRef(onDismiss);
+  const scrollRef = useRef<ScrollView>(null);
+  const { handleScroll, handleContentSizeChange } = useWebScrollViewGuard(
+    scrollRef,
+    visible && scrollable,
+  );
 
   dismissDisabledRef.current = dismissDisabled;
   onDismissRef.current = onDismiss;
@@ -142,12 +150,16 @@ export function BottomSheet({
 
   const bodyContent = scrollable ? (
     <ScrollView
+      ref={scrollRef}
       style={styles.scroll}
       contentContainerStyle={styles.scrollContent}
       keyboardShouldPersistTaps="handled"
       showsVerticalScrollIndicator={false}
       bounces={false}
       nestedScrollEnabled
+      onScroll={handleScroll}
+      onContentSizeChange={handleContentSizeChange}
+      scrollEventThrottle={16}
     >
       {children}
     </ScrollView>
@@ -211,7 +223,7 @@ export function BottomSheet({
               keyboardVerticalOffset={Platform.OS === 'ios' ? 8 : 0}
             >
               {bodyContent}
-              {footer ? <View style={styles.footer}>{footer}</View> : null}
+              {footer ? <View style={[styles.footer, footerStyle]}>{footer}</View> : null}
             </KeyboardAvoidingView>
           </Animated.View>
         </View>

@@ -2,6 +2,7 @@ import React, { createContext, useCallback, useContext, useEffect, useState } fr
 import { useAuth } from './AuthContext';
 import * as api from '../services/api';
 import { Entitlements } from '../types';
+import { userFacingError } from '../utils/userFacingError';
 
 type EntitlementsContextValue = {
   entitlements: Entitlements | null;
@@ -42,9 +43,8 @@ export function EntitlementsProvider({ children }: { children: React.ReactNode }
       const ent = await api.getEntitlements();
       setEntitlements(ent);
     } catch (e) {
-      const msg = e instanceof Error ? e.message : 'Could not load plan status';
-      console.warn('[entitlements] refresh failed:', msg);
-      setError(msg);
+      console.warn('[entitlements] refresh failed:', e);
+      setError(userFacingError(e, 'Could not load plan status.'));
     } finally {
       setLoading(false);
     }

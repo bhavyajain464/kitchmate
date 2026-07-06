@@ -12,6 +12,8 @@ type Props = {
   dishName?: string | null;
   dishId?: string | null;
   variant?: DishImageVariant;
+  /** Optional recipe/import image when catalog CDN or bundle is unavailable. */
+  imageUrl?: string | null;
   /** Frame width; height is derived from the fixed 3:2 dish ratio. */
   width?: number | `${number}%`;
   borderRadius?: number;
@@ -23,6 +25,7 @@ export function DishImage({
   dishName,
   dishId,
   variant = 'card',
+  imageUrl,
   width = '100%',
   borderRadius = 12,
   style,
@@ -30,10 +33,11 @@ export function DishImage({
 }: Props) {
   const { dishId: resolvedId, imageUrls } = useResolvedDish(dishId, dishName);
 
-  const source = useMemo(
-    () => getDishImageSource(resolvedId, variant, imageUrls),
-    [resolvedId, variant, imageUrls],
-  );
+  const source = useMemo(() => {
+    const trimmedUrl = imageUrl?.trim();
+    if (trimmedUrl) return { uri: trimmedUrl };
+    return getDishImageSource(resolvedId, variant, imageUrls);
+  }, [imageUrl, resolvedId, variant, imageUrls]);
 
   const alignSelf: FlexAlignType = typeof width === 'number' ? 'flex-start' : 'stretch';
 

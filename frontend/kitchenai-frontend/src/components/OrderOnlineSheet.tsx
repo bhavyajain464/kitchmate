@@ -4,6 +4,7 @@ import { Portal, Modal, Text, Button, IconButton, Icon } from 'react-native-pape
 import * as api from '../services/api';
 import { CommercePartner, UserShoppingItem } from '../types';
 import { showAppError, showAppSuccess } from '../utils/alertMessage';
+import { userFacingError } from '../utils/userFacingError';
 
 type Props = {
   visible: boolean;
@@ -74,7 +75,7 @@ export function OrderOnlineSheet({ visible, onClose, items, partners, source = '
       showAppSuccess(`Opened ${label} on ${p.name}.`);
     } catch (e) {
       setPartner(null);
-      showAppError(e instanceof Error ? e.message : 'Could not open ordering. Try again.');
+      showAppError(userFacingError(e, 'Could not open ordering. Try again.'));
     } finally {
       setBusy(null);
     }
@@ -86,7 +87,7 @@ export function OrderOnlineSheet({ visible, onClose, items, partners, source = '
     try {
       await openItemSearch(currentIndex, partner.id);
     } catch (e) {
-      showAppError(e instanceof Error ? e.message : 'Could not open this item. Try again.');
+      showAppError(userFacingError(e, 'Could not open this item. Try again.'));
     } finally {
       setBusy(null);
     }
@@ -98,7 +99,7 @@ export function OrderOnlineSheet({ visible, onClose, items, partners, source = '
     try {
       await openItemSearch(currentIndex + 1, partner.id);
     } catch (e) {
-      showAppError(e instanceof Error ? e.message : 'Could not open next item. Try again.');
+      showAppError(userFacingError(e, 'Could not open next item. Try again.'));
     } finally {
       setBusy(null);
     }

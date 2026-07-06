@@ -1,6 +1,7 @@
 import React, { createContext, useContext, useState, useEffect, useCallback, useRef } from 'react';
 import { Platform } from 'react-native';
 import { showAppError, showAppInfo } from '../utils/alertMessage';
+import { userFacingError } from '../utils/userFacingError';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { GoogleSignin, statusCodes } from '@react-native-google-signin/google-signin';
 import { AuthUser } from '../types';
@@ -200,7 +201,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       } else if (msg.includes('401') || msg.includes('invalid audience') || msg.includes('verification failed')) {
         showAppError('Server rejected this Google account. Contact support if this persists.');
       } else {
-        showAppError(`Could not sign in: ${msg.slice(0, 120)}`);
+        showAppError(userFacingError(e, 'Could not sign in. Please try again.'));
       }
     } finally {
       setLoading(false);
@@ -371,14 +372,12 @@ function useNativeAuthRequest(onIdToken: (idToken: string) => void) {
         return;
       }
       if (msg.includes('DEVELOPER_ERROR') || code === '10') {
-        showAppError(
-          'Google Sign-In is not set up for this Play build. In Google Cloud Console, open your Android OAuth client (package com.kitchenai.app) and add the Play App signing SHA-1 from Play Console → Setup → App integrity. See GOOGLE_OAUTH_SETUP.md.',
-        );
+        showAppError('Google sign-in failed. Please try again.');
         return;
       }
 
       console.error('Native Google sign-in error:', e);
-      showAppError(msg ? `Google sign-in failed: ${msg.slice(0, 140)}` : 'Google sign-in failed.');
+      showAppError(userFacingError(e, 'Google sign-in failed.'));
     }
   }, []);
 

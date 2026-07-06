@@ -239,7 +239,6 @@ type MealSuggestionCardProps = {
   onTogglePair: (idx: number, item: string) => void;
   onAddToShopping: (meal: SmartMeal, idx: number) => void;
   onSendToCook: (meal: SmartMeal, idx: number) => void;
-  onOpenCook: (meal: SmartMeal, idx: number) => void;
   onViewRecipe: (meal: SmartMeal) => void;
 };
 
@@ -257,7 +256,6 @@ function MealSuggestionCard({
   onTogglePair,
   onAddToShopping,
   onSendToCook,
-  onOpenCook,
   onViewRecipe,
 }: MealSuggestionCardProps) {
   const { thumbWidth, onTopRowLayout } = useMealThumbWidth();
@@ -313,14 +311,6 @@ function MealSuggestionCard({
             {meal.star_count ?? 0}
           </Text>
         </View>
-        <IconButton
-          icon="chef-hat"
-          iconColor={palette.primary}
-          size={20}
-          style={styles.cookShortcutBtn}
-          onPress={() => onOpenCook(meal, idx)}
-          accessibilityLabel="Open cook mode for this meal"
-        />
         <View
           style={[
             styles.diffBadge,
@@ -581,14 +571,6 @@ export function MealSuggestionsSheet({
     navigation.navigate('Cook', cookNavParams(params));
   };
 
-  const openCook = (meal: SmartMeal, mealIndex: number) => {
-    navigateToCook({
-      mode: 'cooking',
-      dishId: meal.dish_id,
-      dishName: meal.name,
-    });
-  };
-
   const openCookingRecipe = (meal: SmartMeal) => {
     if (!meal.dish_id?.trim()) return;
     navigateToCook({
@@ -697,7 +679,6 @@ export function MealSuggestionsSheet({
               onTogglePair={togglePairSelection}
               onAddToShopping={(m, i) => void addToShopping(m, i)}
               onSendToCook={sendToCook}
-              onOpenCook={openCook}
               onViewRecipe={(m) => openCookingRecipe(m)}
             />
             );
@@ -766,7 +747,6 @@ const styles = StyleSheet.create({
   mealName: { fontWeight: '700', color: '#333', marginBottom: 4 },
   starWrap: { flexDirection: 'row', alignItems: 'center' },
   starBtn: { margin: 0, width: 28, height: 28 },
-  cookShortcutBtn: { margin: 0, width: 28, height: 28 },
   starCountText: { color: '#555', fontWeight: '700', minWidth: 14, marginLeft: -4 },
   diffBadge: { paddingHorizontal: 8, paddingVertical: 3, borderRadius: 8 },
   diffText: { fontSize: 11, fontWeight: '700', textTransform: 'capitalize' },

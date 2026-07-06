@@ -11,6 +11,7 @@ import {
   type PanelPairAlias,
 } from '../services/api';
 import { palette } from '../theme';
+import { userFacingError } from '../utils/userFacingError';
 
 export function AdminPanelScreen() {
   const insets = useSafeAreaInsets();
@@ -40,7 +41,7 @@ export function AdminPanelScreen() {
       const rows = await listPanelPairAliases();
       setAliases(rows);
     } catch (e) {
-      setAliasError(e instanceof Error ? e.message : 'Failed to load aliases');
+      setAliasError(userFacingError(e, 'Failed to load aliases.'));
     } finally {
       setLoadingAliases(false);
     }
@@ -65,7 +66,7 @@ export function AdminPanelScreen() {
       setPairTargetId('');
       await loadAliases();
     } catch (e) {
-      setAliasError(e instanceof Error ? e.message : 'Failed to register alias');
+      setAliasError(userFacingError(e, 'Failed to register alias.'));
     } finally {
       setSavingAlias(false);
     }
@@ -79,7 +80,7 @@ export function AdminPanelScreen() {
       setAliasSuccess(`Deleted "${label}"`);
       await loadAliases();
     } catch (e) {
-      setAliasError(e instanceof Error ? e.message : 'Failed to delete alias');
+      setAliasError(userFacingError(e, 'Failed to delete alias.'));
     }
   };
 
@@ -107,7 +108,7 @@ export function AdminPanelScreen() {
       setDishSuccess(`Saved dish "${id}"`);
       if (!dishId.trim()) setDishId(id);
     } catch (e) {
-      setDishError(e instanceof Error ? e.message : 'Failed to save dish');
+      setDishError(userFacingError(e, 'Failed to save dish.'));
     } finally {
       setSavingDish(false);
     }

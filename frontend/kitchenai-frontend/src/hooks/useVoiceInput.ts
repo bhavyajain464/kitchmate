@@ -5,7 +5,12 @@ type SpeechRecognitionCtor = new () => {
   lang: string;
   interimResults: boolean;
   continuous: boolean;
-  onresult: ((event: { results: { length: number; 0: { 0: { transcript: string } } } }) => void) | null;
+  onresult:
+    | ((event: {
+        resultIndex: number;
+        results: { length: number; [index: number]: { 0: { transcript: string }; isFinal: boolean } };
+      }) => void)
+    | null;
   onerror: ((event: { error?: string }) => void) | null;
   onend: (() => void) | null;
   start: () => void;
@@ -18,19 +23,84 @@ type UseVoiceInputOptions = {
   lang?: string;
 };
 
+function formatDuration(totalSec: number): string {
+  const m = Math.floor(totalSec / 60);
+  const s = totalSec % 60;
+  return `${m}:${s.toString().padStart(2, '0')}`;
+}
+
 export function useVoiceInput({ onResult, lang = 'en-IN' }: UseVoiceInputOptions) {
-  const [listening, setListening] = useState(false);
-  const [supported, setSupported] = useState(false);
+  const [supported, setSupported] = useState(Platform.OS !== 'web');
   const [error, setError] = useState<string | null>(null);
+  const [isRecording, setIsRecording] = useState(false);
+  const [listening, setListening] = useState(false);
+  const [paused, setPaused] = useState(false);
+  const [transcript, setTranscript] = useState('');
+  const [partialTranscript, setPartialTranscript] = useState('');
+  const [durationSec, setDurationSec] = useState(0);
+
   const onResultRef = useRef(onResult);
   onResultRef.current = onResult;
+
   const webRecognitionRef = useRef<InstanceType<SpeechRecognitionCtor> | null>(null);
-  // Native voice module shape varies by platform; keep ref loose for optional dependency.
   const nativeVoiceRef = useRef<{
     start: (locale: string) => Promise<unknown>;
     stop: () => Promise<unknown>;
     destroy: () => Promise<unknown>;
+    cancel?: () => Promise<unknown>;
   } | null>(null);
+
+  const transcriptRef = useRef('');
+  const partialRef = useRef('');
+  const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  const clearTimer = useCallback(() => {
+    if (timerRef.current) {
+      clearInterval(timerRef.current);
+      timerRef.current = null;
+    }
+  }, []);
+
+  const startTimer = useCallback(() => {
+    clearTimer();
+    timerRef.current = setInterval(() => {
+      setDurationSec((prev) => prev + 1);
+    }, 1000);
+  }, [clearTimer]);
+
+  const resetSession = useCallback(() => {
+    clearTimer();
+    transcriptRef.current = '';
+    partialRef.current = '';
+    setTranscript('');
+    setPartialTranscript('');
+    setDurationSec(0);
+    setListening(false);
+    setPaused(false);
+    setIsRecording(false);
+  }, [clearTimer]);
+
+  const stopEngine = useCallback(() => {
+    if (Platform.OS === 'web') {
+      webRecognitionRef.current?.stop();
+      webRecognitionRef.current = null;
+    } else {
+      void nativeVoiceRef.current?.stop?.();
+    }
+    setListening(false);
+  }, []);
+
+  const appendTranscript = useCallback((chunk: string) => {
+    const trimmed = chunk.trim();
+    if (!trimmed) return;
+    const next = transcriptRef.current
+      ? `${transcriptRef.current} ${trimmed}`.trim()
+      : trimmed;
+    transcriptRef.current = next;
+    partialRef.current = '';
+    setTranscript(next);
+    setPartialTranscript('');
+  }, []);
 
   useEffect(() => {
     if (Platform.OS === 'web') {
@@ -47,17 +117,31 @@ export function useVoiceInput({ onResult, lang = 'en-IN' }: UseVoiceInputOptions
       try {
         const Voice = (await import('@react-native-voice/voice')).default;
         if (!mounted) return;
+
         Voice.onSpeechResults = (event) => {
-          const transcript = event.value?.[0]?.trim();
-          if (transcript) onResultRef.current(transcript);
+          const chunk = event.value?.[0]?.trim();
+          if (chunk) appendTranscript(chunk);
+        };
+        Voice.onSpeechPartialResults = (event) => {
+          const chunk = event.value?.[0]?.trim() ?? '';
+          partialRef.current = chunk;
+          setPartialTranscript(chunk);
         };
         Voice.onSpeechError = () => {
           setError('Could not hear that. Try again.');
           setListening(false);
+          setPaused(true);
+          clearTimer();
         };
         Voice.onSpeechEnd = () => {
+          if (partialRef.current) {
+            appendTranscript(partialRef.current);
+          }
           setListening(false);
+          setPaused(true);
+          clearTimer();
         };
+
         nativeVoiceRef.current = Voice as unknown as NonNullable<typeof nativeVoiceRef.current>;
         const available = await Voice.isAvailable();
         setSupported(Boolean(available));
@@ -68,26 +152,17 @@ export function useVoiceInput({ onResult, lang = 'en-IN' }: UseVoiceInputOptions
 
     return () => {
       mounted = false;
+      clearTimer();
       void nativeVoiceRef.current?.destroy?.();
       nativeVoiceRef.current = null;
     };
-  }, []);
+  }, [appendTranscript, clearTimer]);
 
-  const stop = useCallback(() => {
-    if (Platform.OS === 'web') {
-      webRecognitionRef.current?.stop();
-      webRecognitionRef.current = null;
-    } else {
-      void nativeVoiceRef.current?.stop?.();
-    }
-    setListening(false);
-  }, []);
-
-  const start = useCallback(async () => {
+  const startListening = useCallback(async () => {
     setError(null);
     if (!supported) {
       setError('Voice input is not available on this device.');
-      return;
+      return false;
     }
 
     if (Platform.OS === 'web') {
@@ -98,46 +173,132 @@ export function useVoiceInput({ onResult, lang = 'en-IN' }: UseVoiceInputOptions
       const SR = w.SpeechRecognition || w.webkitSpeechRecognition;
       if (!SR) {
         setError('Voice input is not available in this browser.');
-        return;
+        return false;
       }
+
       const recognition = new SR();
       recognition.lang = lang;
-      recognition.interimResults = false;
-      recognition.continuous = false;
+      recognition.interimResults = true;
+      recognition.continuous = true;
       recognition.onresult = (event) => {
-        const transcript = event.results[0]?.[0]?.transcript?.trim();
-        if (transcript) onResultRef.current(transcript);
+        let interim = '';
+        for (let i = event.resultIndex; i < event.results.length; i += 1) {
+          const result = event.results[i];
+          const text = result[0]?.transcript ?? '';
+          if (result.isFinal) {
+            appendTranscript(text);
+          } else {
+            interim = text;
+          }
+        }
+        partialRef.current = interim;
+        setPartialTranscript(interim);
       };
       recognition.onerror = () => {
         setError('Could not hear that. Try again.');
         setListening(false);
+        setPaused(true);
+        clearTimer();
       };
       recognition.onend = () => {
+        if (partialRef.current) {
+          appendTranscript(partialRef.current);
+        }
         setListening(false);
+        setPaused(true);
+        clearTimer();
         webRecognitionRef.current = null;
       };
+
       webRecognitionRef.current = recognition;
       recognition.start();
       setListening(true);
-      return;
+      setPaused(false);
+      startTimer();
+      return true;
     }
 
     try {
       await nativeVoiceRef.current?.start(lang);
       setListening(true);
+      setPaused(false);
+      startTimer();
+      return true;
     } catch {
       setError('Microphone permission is required for voice.');
       setListening(false);
+      return false;
     }
-  }, [lang, supported]);
+  }, [appendTranscript, clearTimer, lang, startTimer, supported]);
 
-  const toggle = useCallback(() => {
-    if (listening) {
-      stop();
+  const startRecording = useCallback(async () => {
+    resetSession();
+    setIsRecording(true);
+    const ok = await startListening();
+    if (!ok) {
+      resetSession();
+    }
+  }, [resetSession, startListening]);
+
+  const pauseRecording = useCallback(() => {
+    if (!listening) return;
+    stopEngine();
+    if (partialRef.current) {
+      appendTranscript(partialRef.current);
+    }
+    setPaused(true);
+    clearTimer();
+  }, [appendTranscript, clearTimer, listening, stopEngine]);
+
+  const resumeRecording = useCallback(async () => {
+    if (!isRecording || listening) return;
+    const ok = await startListening();
+    if (!ok) {
+      setPaused(true);
+    }
+  }, [isRecording, listening, startListening]);
+
+  const cancelRecording = useCallback(() => {
+    stopEngine();
+    if (Platform.OS !== 'web') {
+      void nativeVoiceRef.current?.cancel?.();
+    }
+    resetSession();
+  }, [resetSession, stopEngine]);
+
+  const submitRecording = useCallback(() => {
+    stopEngine();
+    if (partialRef.current) {
+      appendTranscript(partialRef.current);
+    }
+    const finalText = transcriptRef.current.trim();
+    resetSession();
+    if (finalText) {
+      onResultRef.current(finalText);
     } else {
-      void start();
+      setError('No speech detected. Try again.');
     }
-  }, [listening, start, stop]);
+  }, [appendTranscript, resetSession, stopEngine]);
 
-  return { listening, supported, error, start, stop, toggle };
+  const displayTranscript = partialTranscript
+    ? transcript
+      ? `${transcript} ${partialTranscript}`.trim()
+      : partialTranscript
+    : transcript;
+
+  return {
+    supported,
+    error,
+    clearError: () => setError(null),
+    isRecording,
+    listening,
+    paused,
+    transcript: displayTranscript,
+    durationLabel: formatDuration(durationSec),
+    startRecording,
+    pauseRecording,
+    resumeRecording,
+    cancelRecording,
+    submitRecording,
+  };
 }

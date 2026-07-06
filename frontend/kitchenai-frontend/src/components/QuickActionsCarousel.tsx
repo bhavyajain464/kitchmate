@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState, useCallback } from 'react';
+import { useTranslation } from 'react-i18next';
 import {
   StyleSheet,
   View,
@@ -113,6 +114,7 @@ export function QuickActionsCarousel({
   onLogMeal,
   onAddToList,
 }: QuickActionsCarouselProps) {
+  const { t } = useTranslation();
   const { width: screenWidth } = useWindowDimensions();
   const { openCompose } = useWhatsAppShare();
   const { cardWidth, scrollable, snapInterval, frameWidth } =
@@ -173,14 +175,14 @@ export function QuickActionsCarousel({
     <>
       <ActionSlide
         icon="robot-outline"
-        label="AI Buddy"
+        label={t('quickActions.aiBuddy')}
         onPress={openCompose}
         width={cardWidth}
       />
-      <ActionSlide icon="plus-box-outline" label="Add item" onPress={onAddItem} width={cardWidth} />
-      <ActionSlide icon="lightbulb-on-outline" label="Meal idea" onPress={onMealIdea} width={cardWidth} />
-      <ActionSlide icon="notebook-plus-outline" label="Log meal" onPress={onLogMeal} width={cardWidth} />
-      <ActionSlide icon="cart-plus" label="Add to list" onPress={onAddToList} width={cardWidth} />
+      <ActionSlide icon="plus-box-outline" label={t('quickActions.addItem')} onPress={onAddItem} width={cardWidth} />
+      <ActionSlide icon="lightbulb-on-outline" label={t('quickActions.mealIdea')} onPress={onMealIdea} width={cardWidth} />
+      <ActionSlide icon="notebook-plus-outline" label={t('quickActions.logMeal')} onPress={onLogMeal} width={cardWidth} />
+      <ActionSlide icon="cart-plus" label={t('quickActions.addToList')} onPress={onAddToList} width={cardWidth} />
     </>
   );
 

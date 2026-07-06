@@ -60,7 +60,7 @@ export function LogMealModal({ visible, onDismiss, onLogged }: Props) {
       onDismiss();
       onLogged?.();
     } catch {
-      setError('Could not save. Check you are signed in and the backend is running.');
+      setError('Could not save. Please try again.');
     } finally {
       setSaving(false);
     }

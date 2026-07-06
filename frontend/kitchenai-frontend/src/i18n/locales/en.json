@@ -1,0 +1,82 @@
+{
+  "tabs": {
+    "home": "Home",
+    "inventory": "Inventory",
+    "meals": "Meals",
+    "cook": "Cook",
+    "shopping": "Shopping"
+  },
+  "greeting": {
+    "morning": "Good Morning",
+    "afternoon": "Good Afternoon",
+    "evening": "Good Evening",
+    "there": "there"
+  },
+  "home": {
+    "quickActions": "Quick Actions",
+    "mealOfDay": "Meal of the Day",
+    "expiringSoon": "Expiring soon",
+    "tapToReorder": "Tap to reorder",
+    "expiredBanner": "{{count}} item removed from inventory (Expired)",
+    "expiredBanner_other": "{{count}} items removed from inventory (Expired)",
+    "emptyPantryTitle": "Your kitchen is empty",
+    "emptyPantrySub": "Scan a bill or add items to get meal ideas",
+    "today": "Today",
+    "days": "{{count}} days",
+    "oneDay": "1 day"
+  },
+  "quickActions": {
+    "aiBuddy": "AI Buddy",
+    "addItem": "Add item",
+    "mealIdea": "Meal idea",
+    "logMeal": "Log meal",
+    "addToList": "Add to list"
+  },
+  "inventory": {
+    "title": "Inventory",
+    "subtitle": "Your kitchen, perfectly tracked",
+    "subtitleLoading": "Loading your kitchen…",
+    "searchPlaceholder": "Search items…",
+    "addItem": "Add item",
+    "addManually": "Add Manually"
+  },
+  "shopping": {
+    "title": "Shopping List",
+    "subtitle": "Groceries shaped by your meal plan",
+    "searchPlaceholder": "Search list…",
+    "addItem": "Add item"
+  },
+  "meals": {
+    "planningTitle": "Meal planning",
+    "planningSubtitle": "Meals shaped by your pantry",
+    "dietTitle": "Diet",
+    "dietSubtitle": "AI insights and weekly digest"
+  },
+  "cook": {
+    "title": "Cook",
+    "subtitleMessage": "Message your household cook",
+    "subtitleRecipe": "Step-by-step recipe",
+    "cookingMode": "Recipes",
+    "cookMode": "Message cook",
+    "cookingLabel": "Cooking"
+  },
+  "profile": {
+    "settings": "Settings",
+    "preferences": "Preferences",
+    "appLanguage": "App language",
+    "appLanguageHint": "Controls menus and labels in the app",
+    "languageEn": "English",
+    "languageHi": "हिन्दी",
+    "languageKn": "ಕನ್ನಡ",
+    "help": "Help",
+    "takeTour": "Take a tour",
+    "takeTourSub": "Walkthrough of Home, Inventory, Meals, Cook & Shopping",
+    "signOut": "Sign out",
+    "memories": "Memories"
+  },
+  "common": {
+    "save": "Save",
+    "cancel": "Cancel",
+    "loading": "Loading…"
+  }
+}

@@ -88,6 +88,14 @@ export const APP_TOUR_STEPS: AppTourStep[] = [
     placement: 'below',
   },
   {
+    id: 'cook-recipes',
+    title: 'Cooking instructions',
+    body: 'Browse recipes with ingredients, prep time, and step-by-step instructions. Tap any dish to open it.',
+    tab: 'Cook',
+    targetId: 'cook-recipes-list',
+    placement: 'below',
+  },
+  {
     id: 'shopping-suggestions',
     title: 'Smart suggestions',
     body: 'Items to order based on your meal plan and pantry gaps.',
@@ -115,6 +123,7 @@ export const APP_TOUR_TARGET_IDS = {
   inventoryToolbar: 'inventory-toolbar',
   mealsWeekPlan: 'meals-week-plan',
   cookComposer: 'cook-composer',
+  cookRecipesList: 'cook-recipes-list',
   shoppingSuggestions: 'shopping-suggestions',
   shoppingList: 'shopping-list',
 } as const;

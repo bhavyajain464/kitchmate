@@ -7,10 +7,8 @@ import {
   View,
 } from 'react-native';
 import {
-  ActivityIndicator,
   Button,
   Icon,
-  IconButton,
   Text,
 } from 'react-native-paper';
 import * as api from '../services/api';
@@ -32,7 +30,7 @@ import {
   tryLocalBuddyReply,
 } from '../utils/aiBuddyChat';
 import { BottomSheet, bottomSheetPrimaryBtn } from './BottomSheet';
-import { MessageComposer } from './MessageComposer';
+import { BuddyChatComposer } from './BuddyChatComposer';
 import { useAppRefresh } from '../context/AppRefreshContext';
 import { useVoiceInput } from '../hooks/useVoiceInput';
 import { palette } from '../theme';
@@ -402,12 +400,24 @@ export function AIBuddyChatSheet({
     [sendUserMessage],
   );
 
-  const { listening, supported: voiceSupported, error: voiceError, toggle: toggleVoice } =
-    useVoiceInput({ onResult: handleVoiceResult });
+  const {
+    supported: voiceSupported,
+    error: voiceError,
+    isRecording,
+    listening,
+    paused,
+    durationLabel,
+    startRecording,
+    pauseRecording,
+    resumeRecording,
+    cancelRecording,
+    submitRecording,
+  } = useVoiceInput({ onResult: handleVoiceResult });
 
   useEffect(() => {
     if (!visible) {
       initialSentRef.current = false;
+      cancelRecording();
       return;
     }
     setDraft('');
@@ -416,7 +426,7 @@ export function AIBuddyChatSheet({
       { id: nextId('suggestions'), role: 'buddy', kind: 'suggestions' },
     ]);
     initialSentRef.current = false;
-  }, [visible]);
+  }, [visible, cancelRecording]);
 
   useEffect(() => {
     if (!visible) return;
@@ -450,41 +460,26 @@ export function AIBuddyChatSheet({
       scrollable={false}
       maxHeightRatio={0.92}
       sheetStyle={styles.sheet}
+      footerStyle={styles.composerFooter}
       footer={(
-        <View style={styles.footer}>
-          {listening ? (
-            <Text variant="bodySmall" style={styles.listeningHint}>
-              Listening…
-            </Text>
-          ) : null}
-          <View style={styles.composerRow}>
-            {voiceSupported ? (
-              <IconButton
-                icon={listening ? 'microphone' : 'microphone-outline'}
-                size={24}
-                iconColor={listening ? palette.error : palette.primary}
-                onPress={toggleVoice}
-                disabled={busy}
-                accessibilityLabel={listening ? 'Stop listening' : 'Speak'}
-                style={styles.micBtn}
-              />
-            ) : null}
-            <View style={styles.composerWrap}>
-              <MessageComposer
-                value={draft}
-                onChangeText={setDraft}
-                onSubmit={() => void sendUserMessage(draft)}
-                placeholder="Message your kitchen buddy…"
-                disabled={busy}
-                loading={parsing}
-                accessibilityLabel="Send message"
-                showSubmitButton
-                multiline
-                submitIcon="send"
-              />
-            </View>
-          </View>
-        </View>
+        <BuddyChatComposer
+          value={draft}
+          onChangeText={setDraft}
+          onSubmit={() => void sendUserMessage(draft)}
+          placeholder="Message your kitchen buddy…"
+          disabled={busy}
+          loading={parsing}
+          voiceSupported={voiceSupported}
+          isRecording={isRecording}
+          listening={listening}
+          paused={paused}
+          durationLabel={durationLabel}
+          onStartRecording={() => void startRecording()}
+          onPauseRecording={pauseRecording}
+          onResumeRecording={() => void resumeRecording()}
+          onCancelRecording={cancelRecording}
+          onSubmitRecording={submitRecording}
+        />
       )}
     >
       <View style={styles.chatContainer}>
@@ -513,6 +508,11 @@ export function AIBuddyChatSheet({
 const styles = StyleSheet.create({
   sheet: {
     minHeight: SCREEN_HEIGHT * 0.72,
+  },
+  composerFooter: {
+    borderTopWidth: 0,
+    elevation: 0,
+    paddingTop: 8,
   },
   chatContainer: {
     height: SCREEN_HEIGHT * 0.52,
@@ -663,25 +663,5 @@ const styles = StyleSheet.create({
   confirmedLabel: {
     color: palette.primary,
     fontWeight: '700',
-  },
-  footer: {
-    gap: 6,
-  },
-  composerRow: {
-    flexDirection: 'row',
-    alignItems: 'flex-end',
-    gap: 2,
-  },
-  micBtn: {
-    margin: 0,
-    marginBottom: 2,
-  },
-  composerWrap: {
-    flex: 1,
-  },
-  listeningHint: {
-    color: palette.primary,
-    fontWeight: '600',
-    paddingHorizontal: 4,
   },
 });

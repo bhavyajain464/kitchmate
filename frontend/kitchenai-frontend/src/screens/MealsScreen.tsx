@@ -1,4 +1,5 @@
 import React, { useState, useCallback, useEffect, useRef } from 'react';
+import { useTranslation } from 'react-i18next';
 import { StyleSheet, View, ScrollView } from 'react-native';
 import { SegmentedButtons } from 'react-native-paper';
 import { MealsHistoryDietTab } from '../components/meals/MealsHistoryDietTab';
@@ -15,6 +16,7 @@ import { TabScreenHeader } from '../components/TabScreenHeader';
 import { TabScreenScrollLayout } from '../components/TabScreenScrollLayout';
 import { TourTarget } from '../components/tour/TourTarget';
 import { useProductTour } from '../context/ProductTourContext';
+import { userFacingError } from '../utils/userFacingError';
 import { APP_TOUR_TARGET_IDS } from '../tour/appTourSteps';
 import { useTourScreenScroll } from '../hooks/useTourScreenScroll';
 
@@ -37,6 +39,7 @@ type MealsRouteParams = {
 };
 
 export function MealsScreen() {
+  const { t } = useTranslation();
   const navigation = useNavigation<any>();
   const route = useRoute<RouteProp<{ Meals: MealsRouteParams }, 'Meals'>>();
   const { contentPaddingBottom } = useTabBarLayout();
@@ -79,8 +82,7 @@ export function MealsScreen() {
       });
     } catch (e: unknown) {
       setWeekPlanDays([]);
-      const msg = e instanceof Error ? e.message : 'Could not load meal plan.';
-      setWeekPlanError(msg);
+      setWeekPlanError(userFacingError(e, 'Could not load meal plan.'));
     } finally {
       if (!silent) setWeekPlanLoading(false);
     }
@@ -163,12 +165,7 @@ export function MealsScreen() {
       scrollRef={scrollRef}
       header={
         <TabScreenHeader
-          title={mealsTab === 'diet' ? 'Diet' : 'Meal planning'}
-          subtitle={
-            mealsTab === 'diet'
-              ? 'AI insights and nightly digest'
-              : 'Meals shaped by your pantry'
-          }
+          title={mealsTab === 'diet' ? t('meals.dietTitle') : t('meals.planningTitle')}
         />
       }
       sticky={

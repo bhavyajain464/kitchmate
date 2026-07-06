@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
+import { useTranslation } from 'react-i18next';
 import {
   StyleSheet,
   View,
@@ -56,6 +57,7 @@ function primaryDishFromMessage(message: string): string {
 }
 
 export function CookScreen() {
+  const { t } = useTranslation();
   const route = useRoute<{ key: string; name: string; params?: CookRouteParams }>();
   const navigation = useNavigation<BottomTabNavigationProp<MainTabParamList, 'Cook'>>();
   const { contentPaddingBottom } = useTabBarLayout();
@@ -64,7 +66,9 @@ export function CookScreen() {
   useTourScreenScroll('Cook', scrollRef, { fixedChromeExtra: 260 });
   useScrollToTopOnTabFocus(scrollRef);
   const { isTourActive, activeStepId, requestTargetRemeasure } = useProductTour();
-  const onCookTourStep = isTourActive && activeStepId === 'cook-composer';
+  const onCookComposerTourStep = isTourActive && activeStepId === 'cook-composer';
+  const onCookRecipesTourStep = isTourActive && activeStepId === 'cook-recipes';
+  const onCookTourStep = onCookComposerTourStep || onCookRecipesTourStep;
   const [screenMode, setScreenMode] = useState<CookScreenMode>('cook');
   const [cookingSearch, setCookingSearch] = useState('');
   const [expandDishId, setExpandDishId] = useState('');
@@ -87,12 +91,16 @@ export function CookScreen() {
 
   const applyRouteParams = useCallback(() => {
     const params = route.params;
-    const nextMode = normalizeCookMode(params?.mode);
     const navAt = params?.at ?? 0;
-    setScreenMode(nextMode);
-
     const dishId = params?.dishId?.trim() ?? '';
     const dishName = params?.dishName?.trim() ?? '';
+
+    // Only apply mode when explicitly passed — clearing dish params must not flip back to message-cook mode.
+    if (params?.mode == null) return;
+
+    const nextMode = normalizeCookMode(params.mode);
+    setScreenMode(nextMode);
+
     if (nextMode === 'cooking' && navAt > consumedCookingNavAt.current) {
       consumedCookingNavAt.current = navAt;
       setCookingIntentToken(navAt);
@@ -123,7 +131,6 @@ export function CookScreen() {
     setExpandDishId('');
     setCookingIntentToken(0);
     navigation.setParams({
-      mode: undefined,
       dishId: undefined,
       dishName: undefined,
       dishItems: undefined,
@@ -133,22 +140,30 @@ export function CookScreen() {
 
   useFocusEffect(
     useCallback(() => {
-      if (isTourActive && activeStepId === 'cook-composer') return undefined;
+      if (isTourActive && onCookTourStep) return undefined;
       applyRouteParams();
       return undefined;
-    }, [activeStepId, applyRouteParams, isTourActive]),
+    }, [activeStepId, applyRouteParams, isTourActive, onCookTourStep]),
   );
 
+  // Re-apply when Meals (or elsewhere) navigates here with new params while Cook is already focused.
   useEffect(() => {
-    if (onCookTourStep) {
-      setScreenMode('cook');
-    }
-  }, [onCookTourStep]);
+    if (isTourActive && onCookTourStep) return;
+    applyRouteParams();
+  }, [activeStepId, applyRouteParams, isTourActive, onCookTourStep, route.params]);
 
   useEffect(() => {
-    if (!onCookTourStep || profileLoading) return;
+    if (onCookComposerTourStep) {
+      setScreenMode('cook');
+    } else if (onCookRecipesTourStep) {
+      setScreenMode('cooking');
+    }
+  }, [onCookComposerTourStep, onCookRecipesTourStep]);
+
+  useEffect(() => {
+    if (!onCookComposerTourStep || profileLoading) return;
     requestTargetRemeasure(APP_TOUR_TARGET_IDS.cookComposer);
-  }, [onCookTourStep, profileLoading, requestTargetRemeasure]);
+  }, [onCookComposerTourStep, profileLoading, requestTargetRemeasure]);
 
   const loadProfile = useCallback(async () => {
     try {
@@ -158,7 +173,7 @@ export function CookScreen() {
       setCookProfile(profile);
     } catch (error) {
       console.warn('Failed to load cook profile:', error);
-      setProfileError('Could not load cook profile from the API.');
+      setProfileError('Could not load cook profile.');
       setCookProfile(null);
     } finally {
       setProfileLoading(false);
@@ -333,8 +348,7 @@ export function CookScreen() {
     <>
     <View style={styles.root}>
       <TabScreenHeader
-        title="Cook"
-        subtitle={screenMode === 'cooking' ? 'Step-by-step recipe' : 'Message your household cook'}
+        title={t('cook.title')}
         decoration={
           <IconButton icon="chef-hat" iconColor="rgba(255,255,255,0.4)" size={40} style={styles.headerBg} />
         }
@@ -447,7 +461,7 @@ export function CookScreen() {
             <Surface style={styles.loadErrorPrompt} elevation={0}>
               <IconButton icon="cloud-alert-outline" iconColor="#B71C1C" size={18} style={{ margin: 0 }} />
               <Text variant="bodySmall" style={styles.loadErrorText}>
-                {profileError} Check that the frontend is using the same backend you logged into.
+                Could not load cook profile. Tap Retry below.
               </Text>
             </Surface>
             <Button mode="contained-tonal" icon="refresh" onPress={loadProfile}>
@@ -500,13 +514,16 @@ export function CookScreen() {
       </ScrollView>
       </>
       ) : (
+        <View style={styles.recipesBody}>
         <CookingRecipesPanel
           intentToken={cookingIntentToken}
           initialSearch={cookingSearch}
           expandDishId={expandDishId}
           contentPaddingBottom={contentPaddingBottom(56)}
+          tourRecipesStep={onCookRecipesTourStep}
           onIntentConsumed={clearCookingNavigationIntent}
         />
+        </View>
       )}
     </View>
 
@@ -596,6 +613,11 @@ const styles = StyleSheet.create({
     marginTop: 12,
     marginBottom: 4,
     zIndex: 2,
+  },
+
+  recipesBody: {
+    flex: 1,
+    minHeight: 0,
   },
 
   toolbarChrome: {

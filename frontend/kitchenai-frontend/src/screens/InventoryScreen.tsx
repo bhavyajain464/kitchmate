@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useLayoutEffect, useCallback, useMemo, useRef } from 'react';
+import { useTranslation } from 'react-i18next';
 import {
   StyleSheet,
   View,
@@ -104,6 +105,7 @@ function toExpiredPreview(item: InventoryItem | ExpiringItem): ExpiringItem {
 }
 
 export function InventoryScreen() {
+  const { t } = useTranslation();
   const { width: windowWidth } = useWindowDimensions();
   const { contentPaddingBottom } = useTabBarLayout();
   const { isTourActive, activeStepId, requestTargetRemeasure } = useProductTour();
@@ -139,6 +141,9 @@ export function InventoryScreen() {
   const requestGen = useRef(0);
   const nextOffsetRef = useRef(0);
   const resetEndReachedRef = useRef<() => void>(() => {});
+  /** Stable per-category totals for filter pills — not narrowed by expiring/search/group filters. */
+  const inStockPillCountsRef = useRef<Record<string, number>>({});
+  const expiredPillCountsRef = useRef<Record<string, number>>({});
 
   const [addMenuVisible, setAddMenuVisible] = useState(false);
 
@@ -354,7 +359,20 @@ export function InventoryScreen() {
       nextOffsetRef.current = offset + page.items.length;
       setTotal(page.total);
       setHasMore(page.has_more);
-      setGroupCounts(page.group_counts ?? {});
+      const incomingGroupCounts = page.group_counts ?? {};
+      const pillCountsFiltered = isExpiredTab
+        ? Boolean(expiredGroupFilter || debouncedSearch)
+        : Boolean(expiringSoonFilter || groupFilter || debouncedSearch);
+      const pillCountsCache = isExpiredTab ? expiredPillCountsRef : inStockPillCountsRef;
+      if (!pillCountsFiltered) {
+        pillCountsCache.current = incomingGroupCounts;
+        setGroupCounts(incomingGroupCounts);
+      } else if (Object.keys(pillCountsCache.current).length > 0) {
+        setGroupCounts(pillCountsCache.current);
+      } else {
+        pillCountsCache.current = incomingGroupCounts;
+        setGroupCounts(incomingGroupCounts);
+      }
       setBucketCounts(page.counts);
     } catch (e) {
       if (gen !== requestGen.current) return;
@@ -363,6 +381,8 @@ export function InventoryScreen() {
         setListItems([]);
         setTotal(0);
         setHasMore(false);
+        inStockPillCountsRef.current = {};
+        expiredPillCountsRef.current = {};
         setGroupCounts({});
       }
     } finally {
@@ -824,14 +844,13 @@ export function InventoryScreen() {
   return (
     <View style={styles.container}>
       <TabScreenHeader
-        title="Inventory"
-        subtitle={loading && listItems.length === 0 ? 'Loading your kitchen…' : 'Your kitchen, perfectly tracked'}
+        title={t('inventory.title')}
       />
 
       <TourTarget id={APP_TOUR_TARGET_IDS.inventoryToolbar}>
         <TabScreenToolbarRow>
           <Searchbar
-            placeholder="Search items…"
+            placeholder={t('inventory.searchPlaceholder')}
             value={search}
             onChangeText={setSearch}
             style={styles.searchbarInRow}
@@ -858,7 +877,7 @@ export function InventoryScreen() {
           >
             <Menu.Item
               leadingIcon="pencil-plus"
-              title="Add Manually"
+              title={t('inventory.addManually')}
               onPress={() => {
                 setAddMenuVisible(false);
                 setAddModalVisible(true);
@@ -894,7 +913,7 @@ export function InventoryScreen() {
           <FilterPillRow style={styles.filterPillRow}>
             <FilterPill
               key="all"
-              label={`All (${expiringSoonFilter || groupFilter || debouncedSearch ? total : bucketCounts.active + bucketCounts.expiring})`}
+              label={`All (${bucketCounts.active + bucketCounts.expiring})`}
               selected={groupFilter === null && !expiringSoonFilter}
               onPress={() => {
                 setGroupFilter(null);
@@ -907,10 +926,12 @@ export function InventoryScreen() {
                 label={`Expiring Soon (${bucketCounts.expiring})`}
                 selected={expiringSoonFilter}
                 onPress={() => {
-                  setExpiringSoonFilter((on) => {
-                    if (!on) setGroupFilter(null);
-                    return !on;
-                  });
+                  if (expiringSoonFilter) {
+                    setExpiringSoonFilter(false);
+                  } else {
+                    setGroupFilter(null);
+                    setExpiringSoonFilter(true);
+                  }
                 }}
               />
             ) : null}
@@ -923,8 +944,12 @@ export function InventoryScreen() {
                   label={`${foodGroupLabel(g.id, groupMeta)} (${count})`}
                   selected={selected}
                   onPress={() => {
-                    setExpiringSoonFilter(false);
-                    setGroupFilter(selected ? null : g.id);
+                    if (selected) {
+                      setGroupFilter(null);
+                    } else {
+                      setExpiringSoonFilter(false);
+                      setGroupFilter(g.id);
+                    }
                   }}
                 />
               );
@@ -961,7 +986,7 @@ export function InventoryScreen() {
           <FilterPillRow style={styles.filterPillRow}>
             <FilterPill
               key="all"
-              label={`All (${expiredGroupFilter || debouncedSearch ? total : bucketCounts.expired})`}
+              label={`All (${bucketCounts.expired})`}
               selected={expiredGroupFilter === null}
               onPress={() => setExpiredGroupFilter(null)}
             />

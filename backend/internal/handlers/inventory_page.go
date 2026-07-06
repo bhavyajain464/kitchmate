@@ -132,6 +132,25 @@ func appendInventoryFilterClauses(where string, args []interface{}, filters inve
 	return where, args
 }
 
+func inventoryGroupCountsQuery(kitchenID string, filters inventoryPageFilters) (string, []interface{}) {
+	args := []interface{}{kitchenID}
+	bucketClause := inventoryBucketSQL(groupCountBucketFilters(filters), 1)
+	return fmt.Sprintf(`
+		SELECT COALESCE(NULLIF(food_group, ''), 'other') AS fg, COUNT(*)
+		FROM inventory
+		WHERE %s
+		GROUP BY fg`, bucketClause), args
+}
+
+// groupCountBucketFilters returns bucket scope for pill counts. List filters like
+// expiring_only, search, and food_group must not shrink category pill totals.
+func groupCountBucketFilters(filters inventoryPageFilters) inventoryPageFilters {
+	if filters.wantExpired && !filters.wantActive && !filters.wantExpiring {
+		return inventoryPageFilters{wantExpired: true}
+	}
+	return inventoryPageFilters{wantActive: true, wantExpiring: true}
+}
+
 func inventoryOrderSQL(filters inventoryPageFilters) string {
 	if filters.wantExpired && !filters.wantActive && !filters.wantExpiring {
 		return "estimated_expiry DESC, canonical_name ASC"
@@ -163,12 +182,7 @@ func listInventoryPage(ctx context.Context, db *sql.DB, kitchenID string, filter
 	page.Total = total
 	page.HasMore = offset+limit < total
 
-	groupWhere, groupArgs := appendInventoryFilterClauses(bucketClause, []interface{}{kitchenID}, filters, false)
-	groupQuery := `
-		SELECT COALESCE(NULLIF(food_group, ''), 'other') AS fg, COUNT(*)
-		FROM inventory
-		WHERE ` + groupWhere + `
-		GROUP BY fg`
+	groupQuery, groupArgs := inventoryGroupCountsQuery(kitchenID, filters)
 	rows, err := db.QueryContext(ctx, groupQuery, groupArgs...)
 	if err != nil {
 		return page, err

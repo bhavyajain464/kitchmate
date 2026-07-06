@@ -3,16 +3,22 @@ import { FlatList, Pressable, StyleSheet, View } from 'react-native';
 import { ActivityIndicator, IconButton, Text, TextInput } from 'react-native-paper';
 import { DishImage } from './DishImage';
 import { DishRecipeSheet } from './DishRecipeSheet';
+import { TourTarget } from './tour/TourTarget';
+import { useProductTour } from '../context/ProductTourContext';
+import { APP_TOUR_TARGET_IDS } from '../tour/appTourSteps';
 import { DISH_RECIPE_PAGE_SIZE, fetchDishRecipePage } from '../services/api';
 import type { DishRecipeSummary } from '../types';
 import { palette } from '../theme';
-import { scrollFlatListToTop, useFlatListOnEndReached } from '../utils/infiniteScroll';
+import { scrollFlatListToTop, useFlatListOnEndReached, useWebFlatListScroll, webFlatListContentStyle } from '../utils/infiniteScroll';
+import { userFacingError } from '../utils/userFacingError';
 
 type Props = {
   intentToken?: number;
   initialSearch?: string;
   expandDishId?: string;
   contentPaddingBottom?: number;
+  /** Product tour: switch to cooking mode and highlight the recipes list. */
+  tourRecipesStep?: boolean;
   /** Called once after a navigation-driven search/expand is applied. */
   onIntentConsumed?: () => void;
 };
@@ -80,18 +86,20 @@ export function CookingRecipesPanel({
   initialSearch = '',
   expandDishId = '',
   contentPaddingBottom = 24,
+  tourRecipesStep = false,
   onIntentConsumed,
 }: Props) {
+  const { requestTargetRemeasure } = useProductTour();
   const appliedIntentToken = useRef(0);
   const requestGen = useRef(0);
   const nextOffsetRef = useRef(0);
   const resetEndReachedRef = useRef<() => void>(() => {});
+  const resetUserScrollRef = useRef<() => void>(() => {});
   const listRef = useRef<FlatList<DishRecipeSummary>>(null);
   const loadPageRef = useRef<(offset: number, append: boolean) => Promise<void>>(async () => {});
 
   const [search, setSearch] = useState('');
   const [debouncedSearch, setDebouncedSearch] = useState('');
-  const [pendingExpandId, setPendingExpandId] = useState('');
   const [summaries, setSummaries] = useState<DishRecipeSummary[]>([]);
   const [total, setTotal] = useState(0);
   const [hasMore, setHasMore] = useState(false);
@@ -110,7 +118,15 @@ export function CookingRecipesPanel({
       setSearch(q);
       setDebouncedSearch(q);
     }
-    if (id) setPendingExpandId(id);
+    if (id) {
+      setSelectedDish({
+        dish_id: id,
+        dish_name: q || id,
+        title: q || id,
+        ingredient_count: 0,
+        step_count: 0,
+      });
+    }
     onIntentConsumed?.();
   }, [intentToken, initialSearch, expandDishId, onIntentConsumed]);
 
@@ -128,6 +144,7 @@ export function CookingRecipesPanel({
       setLoadError('');
       nextOffsetRef.current = 0;
       resetEndReachedRef.current();
+      resetUserScrollRef.current();
     }
     try {
       const page = await fetchDishRecipePage({
@@ -147,10 +164,7 @@ export function CookingRecipesPanel({
         setTotal(0);
         setHasMore(false);
       }
-      const msg = err instanceof Error ? err.message : 'Could not load recipes';
-      setLoadError(msg.includes('404')
-        ? 'Recipes API not available — restart local backend or deploy latest backend to staging.'
-        : msg);
+      setLoadError(userFacingError(err, 'Could not load recipes.'));
     } finally {
       if (gen === requestGen.current) {
         setLoading(false);
@@ -166,10 +180,34 @@ export function CookingRecipesPanel({
     void loadPage(0, false);
   }, [loadPage]);
 
-  const loadMore = useCallback(async () => {
+  useEffect(() => {
+    if (!tourRecipesStep || loading) return;
+    requestTargetRemeasure(APP_TOUR_TARGET_IDS.cookRecipesList);
+  }, [tourRecipesStep, loading, summaries.length, requestTargetRemeasure]);
+
+  const loadPageMore = useCallback(async () => {
     if (loadingMore || !hasMore) return;
     await loadPage(nextOffsetRef.current, true);
   }, [loadingMore, hasMore, loadPage]);
+
+  const allowLoadMoreRef = useRef(() => true);
+  const loadPageMoreRef = useRef(loadPageMore);
+  loadPageMoreRef.current = loadPageMore;
+
+  const { handleListScroll, allowLoadMore, resetUserScroll } = useWebFlatListScroll(
+    listRef,
+    () => {
+      if (!allowLoadMoreRef.current()) return;
+      void loadPageMoreRef.current();
+    },
+  );
+  allowLoadMoreRef.current = allowLoadMore;
+  resetUserScrollRef.current = resetUserScroll;
+
+  const loadMore = useCallback(async () => {
+    if (!allowLoadMore()) return;
+    await loadPageMore();
+  }, [allowLoadMore, loadPageMore]);
 
   const { flatListProps, resetEndReached } = useFlatListOnEndReached({
     onLoadMore: loadMore,
@@ -178,27 +216,6 @@ export function CookingRecipesPanel({
     loadingMore,
   });
   resetEndReachedRef.current = resetEndReached;
-
-  useEffect(() => {
-    const id = pendingExpandId.trim();
-    if (!id || loading) return;
-    const match = summaries.find((s) => s.dish_id === id);
-    if (match) {
-      setSelectedDish(match);
-      setPendingExpandId('');
-      return;
-    }
-    if (search.trim() && !hasMore) {
-      setSelectedDish({
-        dish_id: id,
-        dish_name: search.trim(),
-        title: search.trim(),
-        ingredient_count: 0,
-        step_count: 0,
-      });
-      setPendingExpandId('');
-    }
-  }, [pendingExpandId, summaries, loading, search, hasMore]);
 
   const emptyLabel = useMemo(() => {
     if (debouncedSearch) return `No recipes match "${debouncedSearch}".`;
@@ -215,8 +232,13 @@ export function CookingRecipesPanel({
     <ActivityIndicator color={palette.primary} style={styles.footerLoader} />
   ) : null;
 
+  const listContentStyle = useMemo(
+    () => webFlatListContentStyle({ paddingBottom: contentPaddingBottom }, summaries.length),
+    [contentPaddingBottom, summaries.length],
+  );
+
   return (
-    <View style={styles.wrap}>
+    <TourTarget id={APP_TOUR_TARGET_IDS.cookRecipesList} style={styles.wrap}>
       <TextInput
         mode="outlined"
         placeholder="Search dishes with recipes"
@@ -230,6 +252,7 @@ export function CookingRecipesPanel({
         dense
       />
 
+      <View style={styles.listSlot}>
       {loading ? (
         <ActivityIndicator color={palette.primary} style={styles.loader} />
       ) : loadError ? (
@@ -241,10 +264,13 @@ export function CookingRecipesPanel({
           ref={listRef}
           data={summaries}
           keyExtractor={(item) => item.dish_id}
-          style={styles.list}
-          contentContainerStyle={{ paddingBottom: contentPaddingBottom }}
+          style={styles.listFlex}
+          contentContainerStyle={listContentStyle}
           keyboardShouldPersistTaps="handled"
           showsVerticalScrollIndicator={false}
+          scrollEnabled={summaries.length > 0}
+          onScroll={handleListScroll}
+          scrollEventThrottle={16}
           {...flatListProps}
           ListHeaderComponent={listHeader}
           ListFooterComponent={listFooter}
@@ -253,6 +279,7 @@ export function CookingRecipesPanel({
           )}
         />
       )}
+      </View>
 
       <DishRecipeSheet
         visible={selectedDish != null}
@@ -260,19 +287,20 @@ export function CookingRecipesPanel({
         dishName={selectedDish?.dish_name || selectedDish?.title}
         onDismiss={() => setSelectedDish(null)}
       />
-    </View>
+    </TourTarget>
   );
 }
 
 const styles = StyleSheet.create({
-  wrap: { flex: 1, paddingHorizontal: 16, paddingTop: 4 },
+  wrap: { flex: 1, minHeight: 0, paddingHorizontal: 16, paddingTop: 4 },
   search: { marginBottom: 10, backgroundColor: '#fff' },
+  listSlot: { flex: 1, minHeight: 0 },
+  listFlex: { flex: 1, minHeight: 0 },
   loader: { marginTop: 32 },
   footerLoader: { marginVertical: 16 },
   error: { color: '#C62828', textAlign: 'center', marginTop: 24, lineHeight: 22 },
   empty: { color: palette.textSecondary, textAlign: 'center', marginTop: 24 },
   countLabel: { color: '#888', marginBottom: 8 },
-  list: { flex: 1 },
   row: {
     flexDirection: 'row',
     alignItems: 'center',

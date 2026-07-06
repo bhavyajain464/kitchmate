@@ -190,7 +190,6 @@ type WeekPlanMealCardProps = {
   onTogglePair: (item: string) => void;
   onAddToShopping: () => void;
   onSendToCook: () => void;
-  onOpenCook: () => void;
   onPreviewImage: () => void;
   onViewRecipe: () => void;
 };
@@ -218,7 +217,6 @@ function WeekPlanMealCard({
   onTogglePair,
   onAddToShopping,
   onSendToCook,
-  onOpenCook,
   onPreviewImage,
   onViewRecipe,
 }: WeekPlanMealCardProps) {
@@ -321,14 +319,6 @@ function WeekPlanMealCard({
                     {meal.star_count ?? 0}
                   </Text>
                 </View>
-                <IconButton
-                  icon="chef-hat"
-                  iconColor={palette.primary}
-                  size={20}
-                  style={styles.cookShortcutBtn}
-                  onPress={onOpenCook}
-                  accessibilityLabel="Open cooking recipes for this meal"
-                />
                 <View
                   style={[
                     styles.diffBadge,
@@ -647,14 +637,6 @@ export function WeekPlanDaySheet({
     navigation.navigate('Cook', cookNavParams(params));
   };
 
-  const handleOpenCook = (meal: MealOfDayMeal) => {
-    navigateToCook({
-      mode: 'cooking',
-      dishId: meal.dish_id,
-      dishName: meal.name,
-    });
-  };
-
   const handleViewRecipe = (meal: MealOfDayMeal) => {
     if (!meal.dish_id?.trim()) return;
     navigateToCook({
@@ -738,7 +720,6 @@ export function WeekPlanDaySheet({
               onTogglePair={(item) => togglePairSelection(slot, item)}
               onAddToShopping={() => void handleAddToShopping(meal, shopItems)}
               onSendToCook={() => handleSendToCook(meal)}
-              onOpenCook={() => handleOpenCook(meal)}
               onPreviewImage={() => setPreviewMeal(meal)}
               onViewRecipe={() => handleViewRecipe(meal)}
             />
@@ -828,7 +809,6 @@ const styles = StyleSheet.create({
   metaText: { color: '#888' },
   starWrap: { flexDirection: 'row', alignItems: 'center' },
   starBtn: { margin: 0, width: 28, height: 28 },
-  cookShortcutBtn: { margin: 0, width: 28, height: 28 },
   starCountText: { color: '#555', fontWeight: '700', minWidth: 14, marginLeft: -4 },
   diffBadge: { paddingHorizontal: 8, paddingVertical: 3, borderRadius: 8 },
   diffText: { fontSize: 11, fontWeight: '700', textTransform: 'capitalize' },

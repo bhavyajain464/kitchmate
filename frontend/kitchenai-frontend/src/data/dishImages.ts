@@ -52,9 +52,16 @@ export function getDishImageSource(
   const remote = getDishImageUrl(id, variant);
   if (remote) return { uri: remote };
 
-  if (variant === 'card' || variant === 'thumb') {
-    const local = DISH_CARD_IMAGES[id];
-    if (local) return local;
+  const bundled = DISH_CARD_IMAGES[id];
+  if (bundled && (variant === 'card' || variant === 'thumb' || variant === 'hero')) {
+    return bundled;
+  }
+
+  if (variant === 'hero') {
+    for (const fallback of ['card', 'thumb'] as const) {
+      const remoteFallback = remoteUrls?.[fallback] ?? getDishImageUrl(id, fallback);
+      if (remoteFallback) return { uri: remoteFallback };
+    }
   }
 
   return null;

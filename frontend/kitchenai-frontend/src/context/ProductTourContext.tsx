@@ -42,6 +42,8 @@ type ProductTourContextValue = {
 
 /** Loaded week-plan carousel is taller than the loading placeholder. */
 const MEALS_WEEK_PLAN_MIN_HEIGHT = 140;
+/** Recipes list grows after the first page loads. */
+const COOK_RECIPES_LIST_MIN_HEIGHT = 120;
 
 const ProductTourContext = createContext<ProductTourContextValue | null>(null);
 
@@ -201,8 +203,15 @@ export function ProductTourProvider({ children, paywallVisible }: ProductTourPro
     generation: number,
   ): Promise<TargetRect | null> => {
     const isWeekPlan = targetId === APP_TOUR_TARGET_IDS.mealsWeekPlan;
-    const attempts = isWeekPlan ? 16 : 1;
-    const delayMs = isWeekPlan ? 75 : 0;
+    const isCookRecipesList = targetId === APP_TOUR_TARGET_IDS.cookRecipesList;
+    const isAnimatedTarget = isWeekPlan || isCookRecipesList;
+    const attempts = isAnimatedTarget ? 16 : 1;
+    const delayMs = isAnimatedTarget ? 75 : 0;
+    const minHeight = isWeekPlan
+      ? MEALS_WEEK_PLAN_MIN_HEIGHT
+      : isCookRecipesList
+        ? COOK_RECIPES_LIST_MIN_HEIGHT
+        : 0;
     let best: TargetRect | null = null;
 
     for (let attempt = 0; attempt < attempts; attempt += 1) {
@@ -213,7 +222,7 @@ export function ProductTourProvider({ children, paywallVisible }: ProductTourPro
         if (!best || rect.height >= best.height) {
           best = rect;
         }
-        if (isWeekPlan && rect.height >= MEALS_WEEK_PLAN_MIN_HEIGHT) {
+        if (isAnimatedTarget && rect.height >= minHeight) {
           break;
         }
       }
