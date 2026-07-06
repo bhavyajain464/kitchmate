@@ -190,7 +190,7 @@ export function CookingRecipesPanel({
     await loadPage(nextOffsetRef.current, true);
   }, [loadingMore, hasMore, loadPage]);
 
-  const allowLoadMoreRef = useRef(() => true);
+  const allowLoadMoreRef = useRef<() => boolean>(() => true);
   const loadPageMoreRef = useRef(loadPageMore);
   loadPageMoreRef.current = loadPageMore;
 
