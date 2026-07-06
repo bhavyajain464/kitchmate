@@ -52,19 +52,49 @@ type ProductTourProviderProps = {
   paywallVisible: boolean;
 };
 
+function tourLog(message: string, detail?: unknown) {
+  if (detail !== undefined) {
+    console.warn(`[product-tour] ${message}`, detail);
+    return;
+  }
+  console.warn(`[product-tour] ${message}`);
+}
+
+async function waitUntilNavigationReady(timeoutMs = 5000): Promise<boolean> {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    if (navigationRef.isReady()) return true;
+    await new Promise((resolve) => setTimeout(resolve, 50));
+  }
+  return navigationRef.isReady();
+}
+
+function getTopRouteName(): string | undefined {
+  if (!navigationRef.isReady()) return undefined;
+  const current = navigationRef.getCurrentRoute();
+  if (current?.name) return current.name;
+  const state = navigationRef.getState();
+  if (!state?.routes?.length) return undefined;
+  return state.routes[state.index ?? 0]?.name;
+}
+
 function getCurrentTab(): TourTab | null {
   if (!navigationRef.isReady()) return null;
   const state = navigationRef.getState();
-  const mainRoute = state.routes[state.index];
-  if (mainRoute.name !== 'MainTabs') return null;
+  if (!state?.routes?.length) return null;
+  const mainRoute = state.routes[state.index ?? 0];
+  if (!mainRoute || mainRoute.name !== 'MainTabs') return null;
   const tabState = mainRoute.state;
-  if (!tabState || tabState.index == null) return 'Home';
+  if (!tabState?.routes?.length || tabState.index == null) return 'Home';
   const tabRoute = tabState.routes[tabState.index];
-  return tabRoute.name as TourTab;
+  return (tabRoute?.name as TourTab) ?? 'Home';
 }
 
 async function navigateToTab(tab: TourTab): Promise<void> {
-  if (!navigationRef.isReady()) return;
+  if (!(await waitUntilNavigationReady())) {
+    tourLog('navigateToTab skipped — navigation not ready', tab);
+    return;
+  }
   const current = getCurrentTab();
   if (current === tab) {
     await new Promise((resolve) => setTimeout(resolve, 120));
@@ -95,35 +125,47 @@ async function navigateToTab(tab: TourTab): Promise<void> {
 async function ensureTourStartsOnHome(
   scrollHandlers: Map<TourTab, ScrollToTargetFn>,
 ): Promise<void> {
-  if (!navigationRef.isReady()) return;
+  const ready = await waitUntilNavigationReady();
+  if (!ready) {
+    tourLog('ensureTourStartsOnHome — navigation not ready, continuing on current screen');
+    return;
+  }
 
-  const state = navigationRef.getState();
-  const topRoute = state.routes[state.index];
+  const topName = getTopRouteName();
+  tourLog('ensureTourStartsOnHome', { topName });
 
-  if (topRoute.name === 'Profile') {
-    navigationRef.dispatch(
-      CommonActions.reset({
-        index: 0,
-        routes: [
-          {
-            name: 'MainTabs',
-            state: {
-              index: 0,
-              routes: [{ name: 'Home' }],
+  try {
+    if (topName === 'Profile') {
+      navigationRef.dispatch(
+        CommonActions.reset({
+          index: 0,
+          routes: [
+            {
+              name: 'MainTabs',
+              state: {
+                index: 0,
+                routes: [{ name: 'Home' }],
+              },
             },
-          },
-        ],
-      }),
-    );
-  } else {
-    navigationRef.navigate('MainTabs', { screen: 'Home' });
+          ],
+        }),
+      );
+    } else {
+      navigationRef.navigate('MainTabs', { screen: 'Home' });
+    }
+  } catch (err) {
+    tourLog('ensureTourStartsOnHome navigation failed', err);
   }
 
   await new Promise((resolve) => setTimeout(resolve, 420));
 
   const homeScroll = scrollHandlers.get('Home');
   if (homeScroll) {
-    await homeScroll(APP_TOUR_TARGET_IDS.profile);
+    try {
+      await homeScroll(APP_TOUR_TARGET_IDS.profile);
+    } catch (err) {
+      tourLog('ensureTourStartsOnHome scroll failed', err);
+    }
   }
 
   await new Promise((resolve) => setTimeout(resolve, 150));
@@ -290,6 +332,7 @@ export function ProductTourProvider({ children, paywallVisible }: ProductTourPro
 
     setTargetRect(isValidTargetRect(rect) ? rect : null);
     setStepReady(true);
+    tourLog('step ready', { stepId: step.id, targetId, hasRect: isValidTargetRect(rect) });
   }, [resolveTargetId, settleTargetRect, steps, waitForTargetRegistration]);
 
   const finishTour = useCallback(async () => {
@@ -304,9 +347,13 @@ export function ProductTourProvider({ children, paywallVisible }: ProductTourPro
   const startTourInternal = useCallback(async (options?: StartTourOptions) => {
     if (!options?.force) {
       const completed = await isAppTourCompleted();
-      if (completed) return;
+      if (completed) {
+        tourLog('start skipped — tour already completed (use force to replay)');
+        return;
+      }
     }
 
+    tourLog('starting tour', { force: Boolean(options?.force) });
     await ensureTourStartsOnHome(scrollHandlersRef.current);
 
     setDynamicStepBodies({});
@@ -317,7 +364,8 @@ export function ProductTourProvider({ children, paywallVisible }: ProductTourPro
   }, []);
 
   const startTour = useCallback(async (_tourId?: 'app' | 'home', options?: StartTourOptions) => {
-    if (paywallVisible) {
+    if (paywallVisible && !options?.force) {
+      tourLog('start deferred — paywall visible');
       pendingAutoStartRef.current = true;
       pendingStartOptionsRef.current = options;
       return;

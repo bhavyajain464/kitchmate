@@ -155,17 +155,17 @@ function AuthenticatedAppTree() {
   const { paywallVisible } = useUpgradePaywall();
 
   return (
-    <ProductTourProvider paywallVisible={paywallVisible}>
-      <AppRefreshProvider>
-        <WhatsAppShareProvider>
-          <MealLogNotificationProvider navigationRef={navigationRef}>
-            <NavigationContainer ref={navigationRef} linking={appLinking}>
+    <AppRefreshProvider>
+      <WhatsAppShareProvider>
+        <MealLogNotificationProvider navigationRef={navigationRef}>
+          <NavigationContainer ref={navigationRef} linking={appLinking}>
+            <ProductTourProvider paywallVisible={paywallVisible}>
               <RootNavigator />
-            </NavigationContainer>
-          </MealLogNotificationProvider>
-        </WhatsAppShareProvider>
-      </AppRefreshProvider>
-    </ProductTourProvider>
+            </ProductTourProvider>
+          </NavigationContainer>
+        </MealLogNotificationProvider>
+      </WhatsAppShareProvider>
+    </AppRefreshProvider>
   );
 }
 
