@@ -53,6 +53,9 @@ export function useVoiceInput({ onResult, lang = 'en-IN' }: UseVoiceInputOptions
   const transcriptRef = useRef('');
   const partialRef = useRef('');
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const listeningRef = useRef(false);
+  const speechEpochRef = useRef(0);
+  const stoppedEpochRef = useRef(0);
 
   const clearTimer = useCallback(() => {
     if (timerRef.current) {
@@ -76,17 +79,20 @@ export function useVoiceInput({ onResult, lang = 'en-IN' }: UseVoiceInputOptions
     setPartialTranscript('');
     setDurationSec(0);
     setListening(false);
+    listeningRef.current = false;
     setPaused(false);
     setIsRecording(false);
   }, [clearTimer]);
 
   const stopEngine = useCallback(() => {
+    stoppedEpochRef.current = speechEpochRef.current;
     if (Platform.OS === 'web') {
       webRecognitionRef.current?.stop();
       webRecognitionRef.current = null;
     } else {
       void nativeVoiceRef.current?.stop?.();
     }
+    listeningRef.current = false;
     setListening(false);
   }, []);
 
@@ -128,15 +134,19 @@ export function useVoiceInput({ onResult, lang = 'en-IN' }: UseVoiceInputOptions
           setPartialTranscript(chunk);
         };
         Voice.onSpeechError = () => {
+          if (!listeningRef.current && speechEpochRef.current > stoppedEpochRef.current) return;
           setError('Could not hear that. Try again.');
+          listeningRef.current = false;
           setListening(false);
           setPaused(true);
           clearTimer();
         };
         Voice.onSpeechEnd = () => {
+          if (!listeningRef.current && speechEpochRef.current > stoppedEpochRef.current) return;
           if (partialRef.current) {
             appendTranscript(partialRef.current);
           }
+          listeningRef.current = false;
           setListening(false);
           setPaused(true);
           clearTimer();
@@ -165,6 +175,9 @@ export function useVoiceInput({ onResult, lang = 'en-IN' }: UseVoiceInputOptions
       return false;
     }
 
+    // Bump before any async work so stale pause/end handlers from a prior session are ignored.
+    speechEpochRef.current += 1;
+
     if (Platform.OS === 'web') {
       const w = window as Window & {
         SpeechRecognition?: SpeechRecognitionCtor;
@@ -172,6 +185,7 @@ export function useVoiceInput({ onResult, lang = 'en-IN' }: UseVoiceInputOptions
       };
       const SR = w.SpeechRecognition || w.webkitSpeechRecognition;
       if (!SR) {
+        speechEpochRef.current -= 1;
         setError('Voice input is not available in this browser.');
         return false;
       }
@@ -195,15 +209,19 @@ export function useVoiceInput({ onResult, lang = 'en-IN' }: UseVoiceInputOptions
         setPartialTranscript(interim);
       };
       recognition.onerror = () => {
+        if (webRecognitionRef.current !== recognition) return;
         setError('Could not hear that. Try again.');
+        listeningRef.current = false;
         setListening(false);
         setPaused(true);
         clearTimer();
       };
       recognition.onend = () => {
+        if (webRecognitionRef.current !== recognition) return;
         if (partialRef.current) {
           appendTranscript(partialRef.current);
         }
+        listeningRef.current = false;
         setListening(false);
         setPaused(true);
         clearTimer();
@@ -212,6 +230,7 @@ export function useVoiceInput({ onResult, lang = 'en-IN' }: UseVoiceInputOptions
 
       webRecognitionRef.current = recognition;
       recognition.start();
+      listeningRef.current = true;
       setListening(true);
       setPaused(false);
       startTimer();
@@ -220,12 +239,15 @@ export function useVoiceInput({ onResult, lang = 'en-IN' }: UseVoiceInputOptions
 
     try {
       await nativeVoiceRef.current?.start(lang);
+      listeningRef.current = true;
       setListening(true);
       setPaused(false);
       startTimer();
       return true;
     } catch {
+      speechEpochRef.current -= 1;
       setError('Microphone permission is required for voice.');
+      listeningRef.current = false;
       setListening(false);
       return false;
     }
@@ -253,7 +275,9 @@ export function useVoiceInput({ onResult, lang = 'en-IN' }: UseVoiceInputOptions
   const resumeRecording = useCallback(async () => {
     if (!isRecording || listening) return;
     const ok = await startListening();
-    if (!ok) {
+    if (ok) {
+      setPaused(false);
+    } else {
       setPaused(true);
     }
   }, [isRecording, listening, startListening]);
