@@ -87,8 +87,7 @@ export function HomeScreen({ navigation }: any) {
   const hasMealOfDay = useRef(false);
   const isFocused = useIsFocused();
   const scrollRef = useRef<ScrollView>(null);
-  const autoStartAttempted = useRef(false);
-  const { requestAutoStartTour, setExpiryStepBody } = useProductTour();
+  const { setExpiryStepBody } = useProductTour();
   const { rememberTargetOffset } = useTourScreenScroll('Home', scrollRef);
   useScrollToTopOnTabFocus(scrollRef);
   const { version: refreshVersion, scope: refreshScope } = useAppRefresh();
@@ -157,15 +156,6 @@ export function HomeScreen({ navigation }: any) {
   useEffect(() => {
     setExpiryStepBody(expiringItems.length > 0 || expiredItems.length > 0);
   }, [expiredItems.length, expiringItems.length, setExpiryStepBody]);
-
-  useEffect(() => {
-    if (!isFocused || loading || autoStartAttempted.current) return;
-    autoStartAttempted.current = true;
-    const timer = setTimeout(() => {
-      requestAutoStartTour();
-    }, 400);
-    return () => clearTimeout(timer);
-  }, [isFocused, loading, requestAutoStartTour]);
 
   const firstName = user?.name?.split(' ')[0] || t('greeting.there');
 

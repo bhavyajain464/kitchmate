@@ -13,7 +13,7 @@ import { CommonActions } from '@react-navigation/native';
 import { ProductTourOverlay } from '../components/tour/ProductTourOverlay';
 import { APP_TOUR_STEPS, APP_TOUR_TARGET_IDS, type AppTourStep, type TourTab } from '../tour/appTourSteps';
 import { isValidTargetRect, type TargetRect } from '../tour/measureTargetRect';
-import { isAppTourCompleted, markAppTourCompleted } from '../utils/productTourStorage';
+import { isAppTourCompleted, markAppTourCompleted, consumePostOnboardingTourPending } from '../utils/productTourStorage';
 import { navigationRef } from '../navigation/AppNavigator';
 
 export type { TargetRect };
@@ -32,7 +32,6 @@ type ProductTourContextValue = {
   unregisterTarget: (id: string) => void;
   registerScrollToTarget: (tab: TourTab, fn: ScrollToTargetFn | null) => void;
   startTour: (tourId?: 'app' | 'home', options?: StartTourOptions) => Promise<void>;
-  requestAutoStartTour: () => void;
   setExpiryStepBody: (hasExpiryAlerts: boolean) => void;
   requestTargetRemeasure: (targetId: string) => void;
   isTourActive: boolean;
@@ -175,8 +174,9 @@ export function ProductTourProvider({ children, paywallVisible }: ProductTourPro
   const overlayHostRef = useRef<View>(null);
   const targetsRef = useRef<Map<string, MeasureTarget>>(new Map());
   const scrollHandlersRef = useRef<Map<TourTab, ScrollToTargetFn>>(new Map());
-  const pendingAutoStartRef = useRef(false);
+  const pendingStartRef = useRef(false);
   const pendingStartOptionsRef = useRef<StartTourOptions | undefined>(undefined);
+  const postOnboardingStartAttemptedRef = useRef(false);
   const measureGenerationRef = useRef(0);
 
   const [visible, setVisible] = useState(false);
@@ -366,21 +366,37 @@ export function ProductTourProvider({ children, paywallVisible }: ProductTourPro
   const startTour = useCallback(async (_tourId?: 'app' | 'home', options?: StartTourOptions) => {
     if (paywallVisible && !options?.force) {
       tourLog('start deferred — paywall visible');
-      pendingAutoStartRef.current = true;
+      pendingStartRef.current = true;
       pendingStartOptionsRef.current = options;
       return;
     }
     await startTourInternal(options);
   }, [paywallVisible, startTourInternal]);
 
-  const requestAutoStartTour = useCallback(() => {
-    pendingAutoStartRef.current = true;
-    void startTour('app');
+  useEffect(() => {
+    if (postOnboardingStartAttemptedRef.current) return;
+    postOnboardingStartAttemptedRef.current = true;
+
+    let cancelled = false;
+    void (async () => {
+      const pending = await consumePostOnboardingTourPending();
+      if (!pending || cancelled) return;
+
+      tourLog('post-onboarding tour scheduled');
+      await new Promise((resolve) => setTimeout(resolve, 600));
+      if (cancelled) return;
+
+      await startTour('app');
+    })();
+
+    return () => {
+      cancelled = true;
+    };
   }, [startTour]);
 
   useEffect(() => {
-    if (paywallVisible || !pendingAutoStartRef.current) return;
-    pendingAutoStartRef.current = false;
+    if (paywallVisible || !pendingStartRef.current) return;
+    pendingStartRef.current = false;
     const options = pendingStartOptionsRef.current;
     pendingStartOptionsRef.current = undefined;
     void startTourInternal(options);
@@ -453,7 +469,6 @@ export function ProductTourProvider({ children, paywallVisible }: ProductTourPro
       unregisterTarget,
       registerScrollToTarget,
       startTour,
-      requestAutoStartTour,
       setExpiryStepBody,
       requestTargetRemeasure,
       isTourActive: visible,
@@ -465,7 +480,6 @@ export function ProductTourProvider({ children, paywallVisible }: ProductTourPro
       activeTargetId,
       registerScrollToTarget,
       registerTarget,
-      requestAutoStartTour,
       requestTargetRemeasure,
       setExpiryStepBody,
       startTour,

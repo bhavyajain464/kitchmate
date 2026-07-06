@@ -28,6 +28,7 @@ import {
 } from '../data/onboardingStaples';
 import { BrandMark } from '../components/BrandMark';
 import { BRAND_MOTTO_LINES } from '../constants/brand';
+import { markPostOnboardingTourPending } from '../utils/productTourStorage';
 
 const INTRO_STEPS = [
   {
@@ -176,6 +177,7 @@ export function OnboardingScreen({ onComplete }: OnboardingScreenProps) {
           // onboarding already saved — note is optional
         }
       }
+      await markPostOnboardingTourPending();
       onComplete();
     } catch (e: any) {
       showAppError('Failed to complete setup. Please try again.');
@@ -194,6 +196,7 @@ export function OnboardingScreen({ onComplete }: OnboardingScreenProps) {
     try {
       await api.joinKitchen(code);
       await api.completeOnboarding(buildOnboardingPayload([]));
+      await markPostOnboardingTourPending();
       onComplete();
     } catch (e) {
       console.error('Onboarding join kitchen failed:', e);
