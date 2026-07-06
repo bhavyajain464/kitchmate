@@ -42,6 +42,7 @@ export function formatExpiryCountdown(daysLeft: number | null): string | null {
     const n = Math.abs(daysLeft);
     return n === 1 ? 'Expired yesterday' : `Expired ${n} days ago`;
   }
+  if (daysLeft > 7) return null;
   if (daysLeft === 0) return 'Expires today';
   if (daysLeft === 1) return '1 day left';
   return `${daysLeft} days left`;

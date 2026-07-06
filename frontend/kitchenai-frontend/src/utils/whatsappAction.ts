@@ -1,4 +1,5 @@
 import { WhatsAppParsedAction, WhatsAppParseIntent } from '../types';
+import { sanitizeUserFacingMessage } from './userFacingError';
 
 const VALID_INTENTS: WhatsAppParseIntent[] = [
   'add_to_shopping_list',
@@ -10,8 +11,6 @@ const VALID_INTENTS: WhatsAppParseIntent[] = [
 ];
 
 const MAX_MESSAGE_LEN = 8000;
-
-const GENERIC_ERROR = 'Something went wrong. Please try again in a moment.';
 
 const INTERNAL_ERROR_RE =
   /groq|gemini|openai|rate limit|whatsapp parse|org_01|tokens per|service tier|llama-|http\s*5\d{2}/i;
@@ -49,10 +48,7 @@ export function logImportError(
 
 /** Hide LLM/provider errors from the UI. */
 export function toUserFacingMessage(raw: string | undefined | null): string {
-  const msg = String(raw ?? '').trim();
-  if (!msg) return GENERIC_ERROR;
-  if (INTERNAL_ERROR_RE.test(msg) || msg.length > 160) return GENERIC_ERROR;
-  return msg;
+  return sanitizeUserFacingMessage(raw);
 }
 
 function sanitizeSummary(summary: string, intent: string): string {

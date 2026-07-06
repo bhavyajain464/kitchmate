@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
+import { useTranslation } from 'react-i18next';
 import {
   View,
   ScrollView,
@@ -33,6 +34,7 @@ import { useEntitlements } from '../context/EntitlementsContext';
 import { usePlanUpgrade } from '../hooks/usePlanUpgrade';
 import { ProfileHeaderUpgrade } from '../components/profile/ProfileHeaderUpgrade';
 import { ProfilePlanSettingsSection } from '../components/profile/ProfilePlanSettingsSection';
+import { AppLanguageSection } from '../components/profile/AppLanguageSection';
 import { AppUpdateSection } from '../components/profile/AppUpdateSection';
 import { showAppError, showAppSuccess, showAppInfo } from '../utils/alertMessage';
 import { snackbarLayoutStyles } from '../constants/snackbarLayout';
@@ -55,6 +57,7 @@ type PendingMemoryDelete = {
 type ProfileRouteParams = RootStackParamList['Profile'];
 
 export function ProfileScreen() {
+  const { t } = useTranslation();
   const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList, 'Profile'>>();
   const route = useRoute<RouteProp<RootStackParamList, 'Profile'>>();
   const { openUpgrade } = useUpgradePaywall();
@@ -488,27 +491,13 @@ export function ProfileScreen() {
             onPress={openProfileUpgrade}
           />
         </View>
-        <View style={styles.statRow}>
-          <Surface style={styles.statPill} elevation={0}>
-            <Text style={styles.statNum}>{profile?.inventory_count || 0}</Text>
-            <Text style={styles.statLabel}>Items</Text>
-          </Surface>
-          <Surface style={styles.statPill} elevation={0}>
-            <Text style={[styles.statNum, { color: '#FF9800' }]}>{profile?.expiring_count || 0}</Text>
-            <Text style={styles.statLabel}>Expiring</Text>
-          </Surface>
-          <Surface style={styles.statPill} elevation={0}>
-            <Text style={[styles.statNum, { color: '#A5D6A7' }]}>{profile?.memories?.length || 0}</Text>
-            <Text style={styles.statLabel}>Memories</Text>
-          </Surface>
-        </View>
       </View>
 
       {/* Tabs */}
       <View style={styles.profileTabs}>
         {[
-          { value: 'settings', label: 'Settings' },
-          { value: 'preferences', label: 'Preferences' },
+          { value: 'settings', label: t('profile.settings') },
+          { value: 'preferences', label: t('profile.preferences') },
         ].map(tab => (
           <Pressable
             key={tab.value}
@@ -551,8 +540,10 @@ export function ProfileScreen() {
             onRetry={() => void refreshEntitlements()}
           />
 
+          <AppLanguageSection />
+
           <Surface style={styles.section} elevation={1}>
-            <Text variant="titleSmall" style={styles.secTitle}>Help</Text>
+            <Text variant="titleSmall" style={styles.secTitle}>{t('profile.help')}</Text>
             <Pressable
               onPress={handleTakeTour}
               style={({ pressed }) => [styles.tourRow, pressed && { opacity: 0.88 }]}
@@ -562,9 +553,9 @@ export function ProfileScreen() {
               <View style={styles.tourRowLeft}>
                 <IconButton icon="map-marker-path" size={20} iconColor="#2E7D32" style={styles.tourRowIcon} />
                 <View style={styles.tourRowText}>
-                  <Text variant="bodyMedium" style={styles.tourRowTitle}>Take a tour</Text>
+                  <Text variant="bodyMedium" style={styles.tourRowTitle}>{t('profile.takeTour')}</Text>
                   <Text variant="bodySmall" style={styles.tourRowSub}>
-                    Walkthrough of Home, Inventory, Meals, Cook & Shopping
+                    {t('profile.takeTourSub')}
                   </Text>
                 </View>
               </View>
@@ -864,16 +855,6 @@ const styles = StyleSheet.create({
   avatarText: { fontSize: 26, color: '#fff', fontWeight: '700' },
   userName: { color: '#fff', fontWeight: '800' },
   userEmail: { color: 'rgba(255,255,255,0.85)', marginTop: 2 },
-  statRow: { flexDirection: 'row', gap: 10, marginTop: 18, justifyContent: 'center' },
-  statPill: {
-    backgroundColor: 'rgba(255,255,255,0.15)',
-    paddingHorizontal: 16,
-    paddingVertical: 8,
-    borderRadius: 14,
-    alignItems: 'center',
-  },
-  statNum: { color: '#fff', fontWeight: '800', fontSize: 18 },
-  statLabel: { color: 'rgba(255,255,255,0.7)', fontSize: 10, marginTop: 2 },
 
   profileTabs: {
     flexDirection: 'row',

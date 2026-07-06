@@ -9,7 +9,7 @@ import (
 )
 
 // DefaultGroqModel is used for meals, bill scan, shelf-life, WhatsApp NLU, and diet analysis.
-const DefaultGroqModel = "llama-3.3-70b-versatile"
+const DefaultGroqModel = "openai/gpt-oss-120b"
 
 type Config struct {
 	Port            string

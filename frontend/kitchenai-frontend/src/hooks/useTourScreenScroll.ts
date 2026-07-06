@@ -67,6 +67,7 @@ export function useTourScreenScroll(
         targetId === APP_TOUR_TARGET_IDS.profile ||
         targetId === APP_TOUR_TARGET_IDS.inventoryToolbar ||
         targetId === APP_TOUR_TARGET_IDS.cookComposer ||
+        targetId === APP_TOUR_TARGET_IDS.cookRecipesList ||
         targetId === APP_TOUR_TARGET_IDS.mealsWeekPlan ||
         targetId === APP_TOUR_TARGET_IDS.shoppingSuggestions
       ) {

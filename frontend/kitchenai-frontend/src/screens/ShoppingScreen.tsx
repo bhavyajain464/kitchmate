@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
+import { useTranslation } from 'react-i18next';
 import {
   StyleSheet,
   View,
@@ -57,6 +58,7 @@ type PendingShoppingBatch = {
 };
 
 export function ShoppingScreen() {
+  const { t } = useTranslation();
   const { contentPaddingBottom } = useTabBarLayout();
   const { width: screenWidth } = useWindowDimensions();
   const gridCellWidth = useMemo(() => {
@@ -100,13 +102,14 @@ export function ShoppingScreen() {
 
   const [orderSuggestions, setOrderSuggestions] = useState<OrderSuggestItem[]>([]);
   const [orderSuggestFailed, setOrderSuggestFailed] = useState(false);
-  const [orderLoading, setOrderLoading] = useState(true);
+  const [orderLoading, setOrderLoading] = useState(false);
   const [addingSuggest, setAddingSuggest] = useState<string | null>(null);
   const [orderPartners, setOrderPartners] = useState<CommercePartner[]>([]);
   const [commerceEnabled, setCommerceEnabled] = useState(false);
   const [orderSheetVisible, setOrderSheetVisible] = useState(false);
   const lastSuggestNamesRef = useRef<string[]>([]);
   const skipMountLoadSuggestions = useRef(true);
+  const skipFocusSuggestionsRef = useRef(true);
   const isFocused = useIsFocused();
   const navigation = useNavigation<BottomTabNavigationProp<MainTabParamList, 'Shopping'>>();
   const { version: refreshVersion, scope: refreshScope, bump } = useAppRefresh();
@@ -240,17 +243,21 @@ export function ShoppingScreen() {
 
   const loadOrderSuggestions = refillSuggestionPool;
 
-  // Initial list load (once on mount / first focus). Subsequent focuses keep the
-  // loaded pages + scroll position; the list reloads only on a real data change
-  // (see the refresh-version effect below), matching Inventory.
+  // Initial load: list first, then suggestions — one loader visible at a time.
   useEffect(() => {
-    void loadItems();
-  }, [loadItems]);
+    void (async () => {
+      await loadItems();
+      await loadOrderSuggestions();
+    })();
+  }, [loadItems, loadOrderSuggestions]);
 
-  // Order suggestions are a small header carousel (not the scroll list), so refreshing
-  // them on focus is cheap and doesn't disturb scroll position.
+  // Order suggestions refresh on return visits only (initial load is in the mount effect above).
   useFocusEffect(
     useCallback(() => {
+      if (skipFocusSuggestionsRef.current) {
+        skipFocusSuggestionsRef.current = false;
+        return;
+      }
       void loadOrderSuggestions();
     }, [loadOrderSuggestions]),
   );
@@ -610,8 +617,7 @@ export function ShoppingScreen() {
   return (
     <View style={styles.root}>
       <TabScreenHeader
-        title="Shopping List"
-        subtitle="Groceries shaped by your meal plan"
+        title={t('shopping.title')}
       />
       <ScrollView
         ref={scrollRef}
@@ -660,7 +666,7 @@ export function ShoppingScreen() {
             ) : null}
           </View>
 
-          {orderLoading ? (
+          {loading ? null : orderLoading ? (
             <ActivityIndicator style={styles.suggestLoader} size="small" color="#2E7D32" />
           ) : displaySuggestions.length > 0 ? (
             <SuggestOrderCarousel

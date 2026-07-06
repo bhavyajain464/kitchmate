@@ -1,4 +1,5 @@
 import React from 'react';
+import { useTranslation } from 'react-i18next';
 import { StyleSheet, View } from 'react-native';
 import { Switch, Text } from 'react-native-paper';
 import type { CookScreenMode } from '../navigation/cookParams';
@@ -9,6 +10,7 @@ type Props = {
 };
 
 export function CookModeToggle({ value, onChange }: Props) {
+  const { t } = useTranslation();
   const cooking = value === 'cooking';
 
   return (
@@ -17,7 +19,7 @@ export function CookModeToggle({ value, onChange }: Props) {
         variant="labelLarge"
         style={[styles.label, cooking ? styles.labelOn : styles.labelOff]}
       >
-        Cooking
+        {t('cook.cookingLabel')}
       </Text>
       <Switch
         value={cooking}

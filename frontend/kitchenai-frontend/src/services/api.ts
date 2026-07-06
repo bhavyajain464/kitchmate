@@ -7,9 +7,9 @@ import {
   logImportError,
   normalizeParsedAction,
   normalizeParsedActions,
-  toUserFacingMessage,
   unknownWhatsAppAction,
 } from '../utils/whatsappAction';
+import { sanitizeUserFacingMessage } from '../utils/userFacingError';
 import {
   CatalogIngredient,
   InventoryItem,
@@ -38,6 +38,7 @@ import {
   UserMemory,
   CookedLogEntry,
   DietAnalysisSettings,
+  DietDayReportResponse,
   CookedHistoryResponse,
   Entitlements,
   BillingConfig,
@@ -163,21 +164,20 @@ export class UpgradeRequiredError extends Error {
 }
 
 async function parseApiError(res: Response, fallback: string): Promise<never> {
-  let message = fallback;
   try {
     const body = await res.json();
     if (body?.error === 'upgrade_required' && body?.message) {
-      throw new UpgradeRequiredError(body.message, body.feature || 'unknown');
-    }
-    if (typeof body?.message === 'string' && body.message) {
-      message = body.message;
+      throw new UpgradeRequiredError(
+        sanitizeUserFacingMessage(body.message, fallback),
+        body.feature || 'unknown',
+      );
     }
   } catch (e) {
     if (e instanceof UpgradeRequiredError) {
       throw e;
     }
   }
-  throw new Error(message);
+  throw new Error(fallback);
 }
 
 // ─── Entitlements (freemium) ──────────────────────────────────
@@ -216,10 +216,7 @@ function normalizeEntitlements(raw: Record<string, unknown>): Entitlements {
 export async function getEntitlements(): Promise<Entitlements> {
   const res = await authFetch(`${API_BASE_URL}/entitlements`);
   if (!res.ok) {
-    const detail = await res.text().catch(() => '');
-    throw new Error(
-      `Plan status request failed (HTTP ${res.status})${detail ? `: ${detail.slice(0, 120)}` : ''}`,
-    );
+    throw new Error('Could not load plan status.');
   }
   const raw = (await res.json()) as Record<string, unknown>;
   return normalizeEntitlements(raw);
@@ -476,7 +473,7 @@ export async function fetchDishRecipePage(opts?: {
     params.set('offset', '0');
   }
   const res = await authFetch(`${API_BASE_URL}/dishes/recipes?${params.toString()}`);
-  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  if (!res.ok) throw new Error('Could not load recipes.');
   return parseDishRecipeListResponse(res);
 }
 
@@ -490,7 +487,7 @@ export async function fetchDishRecipes(opts?: {
   if (opts?.limit != null && opts.limit > 0) params.set('limit', String(opts.limit));
   const qs = params.toString();
   const res = await authFetch(`${API_BASE_URL}/dishes/recipes${qs ? `?${qs}` : ''}`);
-  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  if (!res.ok) throw new Error('Could not load recipes.');
   return (await parseDishRecipeListResponse(res)).items;
 }
 
@@ -498,7 +495,7 @@ export async function fetchDishRecipe(dishId: string): Promise<DishRecipe> {
   const id = dishId.trim();
   if (!id) throw new Error('dish_id is required');
   const res = await authFetch(`${API_BASE_URL}/dishes/${encodeURIComponent(id)}/recipe`);
-  if (!res.ok) throw new Error(res.status === 404 ? 'Recipe not found' : `HTTP ${res.status}`);
+  if (!res.ok) throw new Error(res.status === 404 ? 'Recipe not found' : 'Could not load recipe.');
   return res.json();
 }
 
@@ -595,15 +592,14 @@ export async function scanBillUpload(fileUri: string, mimeHint?: string): Promis
     typeof body.message === 'string' &&
     body.message
   ) {
-    throw new UpgradeRequiredError(body.message, body.feature || 'bill_scan');
+    throw new UpgradeRequiredError(
+      sanitizeUserFacingMessage(body.message, BILL_SCAN_ALERT_MESSAGE),
+      body.feature || 'bill_scan',
+    );
   }
 
   if (!res.ok || body.success === false) {
-    const message =
-      typeof body.message === 'string' && body.message.trim()
-        ? body.message.trim()
-        : BILL_SCAN_ALERT_MESSAGE;
-    throw new Error(message);
+    throw new Error(BILL_SCAN_ALERT_MESSAGE);
   }
 
   return body;
@@ -673,14 +669,14 @@ export async function getCookInfo(): Promise<CookInfo> {
   return res.json();
 }
 
-function parseApiErrorMessage(body: string, status: number): string {
+function parseApiErrorMessage(body: string, _status: number): string {
   const trimmed = body.trim();
-  if (!trimmed) return toUserFacingMessage('');
+  if (!trimmed) return sanitizeUserFacingMessage('');
   try {
     const j = JSON.parse(trimmed) as { error?: string; message?: string };
-    return toUserFacingMessage(j.error || j.message || trimmed);
+    return sanitizeUserFacingMessage(j.error || j.message || trimmed);
   } catch {
-    return toUserFacingMessage(trimmed);
+    return sanitizeUserFacingMessage(trimmed);
   }
 }
 
@@ -706,7 +702,7 @@ export async function parseWhatsAppMessage(
   } catch (cause) {
     const rawMessage = cause instanceof Error ? cause.message : String(cause);
     logImportError('parse', { url, rawMessage, cause });
-    throw new Error(toUserFacingMessage(rawMessage));
+    throw new Error(sanitizeUserFacingMessage(rawMessage));
   }
   const body = await res.text();
   if (!res.ok) {
@@ -772,7 +768,7 @@ export async function applyWhatsAppActions(
   } catch (cause) {
     const rawMessage = cause instanceof Error ? cause.message : String(cause);
     logImportError('apply', { url, rawMessage, cause });
-    throw new Error(toUserFacingMessage(rawMessage));
+    throw new Error(sanitizeUserFacingMessage(rawMessage));
   }
   const body = await res.text();
   let data: WhatsAppApplyResponse & { error?: string };
@@ -791,7 +787,7 @@ export async function applyWhatsAppActions(
   if (!res.ok || !data.success) {
     const raw = data.message || data.error || body.trim() || `HTTP ${res.status}`;
     logImportError('apply', { url, status: res.status, body, rawMessage: raw });
-    throw new Error(toUserFacingMessage(raw));
+    throw new Error(sanitizeUserFacingMessage(raw));
   }
   return data;
 }
@@ -1035,7 +1031,7 @@ export async function getMealOfDay(): Promise<{
   const res = await authFetch(`${API_BASE_URL}/meals/meal-of-day`);
   if (res.status === 404) return null;
   if (res.status === 503) {
-    throw new Error('Meal of the Day is temporarily unavailable. The server needs Redis configured.');
+    throw new Error('Meal of the Day is temporarily unavailable. Please try again later.');
   }
   if (!res.ok) await parseApiError(res, 'Failed to load meal of the day');
   return res.json();
@@ -1058,7 +1054,7 @@ export async function getWeekPlan(): Promise<{
   const res = await authFetch(`${API_BASE_URL}/meals/week-plan`);
   if (res.status === 404) return null;
   if (res.status === 503) {
-    throw new Error('Meal planning is temporarily unavailable. The server needs Redis configured.');
+    throw new Error('Meal planning is temporarily unavailable. Please try again later.');
   }
   if (!res.ok) await parseApiError(res, 'Failed to load meal plan');
   return res.json();
@@ -1115,6 +1111,13 @@ export async function updateDietAnalysisSettings(emailEnabled: boolean): Promise
     body: JSON.stringify({ email_enabled: emailEnabled }),
   });
   if (!res.ok) await parseApiError(res, 'Failed to update diet analysis');
+  return res.json();
+}
+
+export async function getDietDayReport(dateISO?: string): Promise<DietDayReportResponse> {
+  const qs = dateISO?.trim() ? `?date=${encodeURIComponent(dateISO.trim())}` : '';
+  const res = await authFetch(`${API_BASE_URL}/meals/diet-analysis/report${qs}`);
+  if (!res.ok) await parseApiError(res, 'Failed to load nutrient analysis');
   return res.json();
 }
 
@@ -1279,8 +1282,7 @@ export async function googleLogin(credential: string) {
   });
   notifyUpdateRequiredIfNeeded(res);
   if (!res.ok) {
-    const text = await res.text().catch(() => '');
-    throw new Error(`HTTP ${res.status}: ${text}`);
+    throw new Error('Could not sign in. Please try again.');
   }
   return res.json();
 }
@@ -1326,8 +1328,7 @@ export async function registerPanelPairAlias(body: {
     body: JSON.stringify(body),
   });
   if (!res.ok) {
-    const text = await res.text().catch(() => '');
-    throw new Error(text || `HTTP ${res.status}`);
+    throw new Error('Could not save changes.');
   }
 }
 
@@ -1337,8 +1338,7 @@ export async function deletePanelPairAlias(label: string): Promise<void> {
     { method: 'DELETE' },
   );
   if (!res.ok) {
-    const text = await res.text().catch(() => '');
-    throw new Error(text || `HTTP ${res.status}`);
+    throw new Error('Could not save changes.');
   }
 }
 
@@ -1356,8 +1356,7 @@ export async function upsertPanelDish(body: {
     body: JSON.stringify(body),
   });
   if (!res.ok) {
-    const text = await res.text().catch(() => '');
-    throw new Error(text || `HTTP ${res.status}`);
+    throw new Error('Could not save changes.');
   }
   const data = await res.json();
   return typeof data.id === 'string' ? data.id : body.id ?? '';

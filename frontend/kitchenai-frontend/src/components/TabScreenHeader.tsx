@@ -7,7 +7,10 @@ import { ProfileHeaderButton } from './ProfileHeaderButton';
 /** Shared green tab header — keep padding/radius in sync across main tabs. */
 export const TAB_HEADER = {
   paddingHorizontal: 20,
+  /** Home hero (greeting + name). */
   paddingBottom: 22,
+  /** Single-line tab titles (no subtitle). */
+  paddingBottomTitleOnly: 18,
   borderRadius: 28,
   backgroundColor: '#2E7D32',
 } as const;
@@ -39,10 +42,18 @@ export function TabScreenHeader({
   trailing,
 }: TabScreenHeaderProps) {
   const insets = useSafeAreaInsets();
+  const titleOnly = !subtitle;
   return (
-    <View style={[styles.header, { paddingTop: insets.top + 14 }, style]}>
+    <View
+      style={[
+        styles.header,
+        { paddingTop: insets.top + 14 },
+        titleOnly && styles.headerTitleOnly,
+        style,
+      ]}
+    >
       {decoration}
-      <View style={styles.headerTopRow}>
+      <View style={[styles.headerTopRow, titleOnly && styles.headerTopRowTitleOnly]}>
         <View style={styles.headerTextBlock}>
           {leading}
           <Text variant="headlineSmall" style={styles.headerTitle}>
@@ -56,7 +67,9 @@ export function TabScreenHeader({
         </View>
         <View style={styles.headerTrailing}>
           {trailing}
-          <ProfileHeaderButton />
+          <View style={styles.profileAlign}>
+            <ProfileHeaderButton />
+          </View>
         </View>
       </View>
     </View>
@@ -84,24 +97,37 @@ const styles = StyleSheet.create({
     borderBottomRightRadius: TAB_HEADER.borderRadius,
     overflow: 'hidden',
   },
+  headerTitleOnly: {
+    paddingBottom: TAB_HEADER.paddingBottomTitleOnly,
+  },
   headerTopRow: {
     flexDirection: 'row',
     alignItems: 'flex-start',
     gap: 12,
   },
+  headerTopRowTitleOnly: {
+    alignItems: 'center',
+    minHeight: 44,
+  },
   headerTextBlock: {
     flex: 1,
     minWidth: 0,
+    justifyContent: 'center',
   },
   headerTrailing: {
     alignItems: 'flex-end',
+    justifyContent: 'center',
     gap: 8,
     flexShrink: 0,
+  },
+  profileAlign: {
+    alignSelf: 'center',
   },
   headerTitle: {
     color: '#fff',
     fontWeight: '800',
     letterSpacing: 0.3,
+    lineHeight: 32,
   },
   headerSub: {
     color: 'rgba(255,255,255,0.92)',

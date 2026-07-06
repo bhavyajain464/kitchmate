@@ -3,6 +3,7 @@ import { ScrollView, StyleSheet, View } from 'react-native';
 import { ActivityIndicator, Text } from 'react-native-paper';
 import type { DishRecipe } from '../types';
 import { palette } from '../theme';
+import { DishImage } from './DishImage';
 
 function formatMinutes(mins?: number) {
   if (!mins || mins <= 0) return null;
@@ -12,6 +13,7 @@ function formatMinutes(mins?: number) {
 type Props = {
   loading: boolean;
   recipe: DishRecipe | null;
+  dishId?: string;
   dishName?: string;
   scrollStyle?: object;
   contentStyle?: object;
@@ -20,19 +22,44 @@ type Props = {
 export function DishRecipeContent({
   loading,
   recipe,
+  dishId,
   dishName,
   scrollStyle,
   contentStyle,
 }: Props) {
+  const imageName = recipe?.title?.trim() || dishName?.trim() || 'Recipe';
+  const resolvedDishId = dishId || recipe?.dish_id;
+  const recipeImageUrl = recipe?.images?.find((url) => url?.trim())?.trim();
+  const heroImage = resolvedDishId || recipeImageUrl ? (
+    <DishImage
+      dishId={resolvedDishId}
+      dishName={imageName}
+      variant="card"
+      width="100%"
+      borderRadius={14}
+      style={styles.heroImage}
+      imageUrl={recipeImageUrl}
+      accessibilityLabel={`Photo of ${imageName}`}
+    />
+  ) : null;
+
   if (loading) {
-    return <ActivityIndicator color={palette.primary} style={styles.loader} />;
+    return (
+      <View>
+        {heroImage}
+        <ActivityIndicator color={palette.primary} style={styles.loader} />
+      </View>
+    );
   }
 
   if (!recipe) {
     return (
-      <Text variant="bodyMedium" style={styles.muted}>
-        No recipe available for {dishName?.trim() || 'this dish'} yet.
-      </Text>
+      <View>
+        {heroImage}
+        <Text variant="bodyMedium" style={styles.muted}>
+          No recipe available for {dishName?.trim() || 'this dish'} yet.
+        </Text>
+      </View>
     );
   }
 
@@ -42,6 +69,8 @@ export function DishRecipeContent({
 
   return (
     <ScrollView style={[styles.scroll, scrollStyle]} contentContainerStyle={[styles.content, contentStyle]}>
+      {heroImage}
+
       {recipe.description?.trim() ? (
         <Text variant="bodyMedium" style={styles.description}>{recipe.description}</Text>
       ) : null}
@@ -88,6 +117,7 @@ const styles = StyleSheet.create({
   muted: { color: palette.textSecondary, marginVertical: 12 },
   scroll: { maxHeight: 520 },
   content: { paddingBottom: 16, gap: 4 },
+  heroImage: { marginBottom: 12 },
   description: { color: palette.textSecondary, marginBottom: 8 },
   metaRow: { gap: 4, marginBottom: 12 },
   meta: { color: palette.primary },

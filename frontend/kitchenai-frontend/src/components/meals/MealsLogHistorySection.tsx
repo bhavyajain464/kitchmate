@@ -61,7 +61,7 @@ export function MealsLogHistorySection({ openAddOnMount, onAddModalOpened }: Pro
       {mealHistory.length === 0 ? (
         <Surface style={styles.historyEmpty} elevation={0}>
           <Text variant="bodySmall" style={styles.historyEmptyText}>
-            Log breakfast, lunch, snacks — homemade or restaurant. These feed your nightly diet email.
+            Log breakfast, lunch, snacks — homemade or restaurant. These feed your weekly diet email.
           </Text>
           <Button mode="outlined" icon="plus" onPress={openAddMeal} textColor="#2E7D32">
             Log your first meal

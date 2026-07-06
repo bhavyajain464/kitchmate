@@ -233,6 +233,7 @@ func main() {
 	api.Handle("/meals/cooked", middleware.RequireAuth(http.HandlerFunc(handlers.LogCookedDish(cookedLogSvc)))).Methods("POST", "OPTIONS")
 	api.Handle("/meals/diet-analysis", middleware.RequireAuth(http.HandlerFunc(handlers.GetDietAnalysisSettings(dietDigestSvc)))).Methods("GET", "OPTIONS")
 	api.Handle("/meals/diet-analysis", middleware.RequireAuth(http.HandlerFunc(handlers.UpdateDietAnalysisSettings(dietDigestSvc)))).Methods("PUT", "OPTIONS")
+	api.Handle("/meals/diet-analysis/report", middleware.RequireAuth(http.HandlerFunc(handlers.GetDietDayReport(dietDigestSvc)))).Methods("GET", "OPTIONS")
 	api.Handle("/meals/diet-analysis/send-test", middleware.RequireAuth(http.HandlerFunc(handlers.SendDietDigestTest(dietDigestSvc)))).Methods("POST", "OPTIONS")
 
 	// Legacy rescue meals

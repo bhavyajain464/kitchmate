@@ -4,6 +4,7 @@ import { CheckoutOrderResponse } from '../types';
 import { openRazorpayCheckout } from '../utils/razorpayCheckout';
 import { useEntitlements } from '../context/EntitlementsContext';
 import { showAppError, showAppInfo, showAppSuccess } from '../utils/alertMessage';
+import { userFacingError } from '../utils/userFacingError';
 
 async function completeCheckout(order: CheckoutOrderResponse): Promise<void> {
   const payment = await openRazorpayCheckout(order);
@@ -11,8 +12,8 @@ async function completeCheckout(order: CheckoutOrderResponse): Promise<void> {
 }
 
 function checkoutErrorMessage(e: unknown): string {
-  if (e instanceof Error && e.message) return e.message;
-  return 'Could not complete checkout. Please try again.';
+  if (e instanceof Error && e.message === 'Payment cancelled') return 'Payment cancelled';
+  return userFacingError(e, 'Could not complete checkout. Please try again.');
 }
 
 export function planCheckoutKey(tier: string, interval: string) {

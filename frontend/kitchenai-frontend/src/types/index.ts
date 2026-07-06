@@ -338,6 +338,57 @@ export interface DietAnalysisSettings {
   delivery_summary: string;
 }
 
+export interface DietMacroTotals {
+  calories_kcal: number;
+  protein_g: number;
+  carbs_g: number;
+  fat_g: number;
+  fiber_g: number;
+  sugar_g: number;
+  sodium_mg: number;
+}
+
+export interface DietMacroSplit {
+  protein: number;
+  carbs: number;
+  fat: number;
+}
+
+export interface DietMealBreakdown {
+  name: string;
+  slot: string;
+  calories_kcal: number;
+  protein_g: number;
+  carbs_g: number;
+  fat_g: number;
+}
+
+export interface DietMicronutrient {
+  name: string;
+  amount: string;
+  status: string;
+  note: string;
+}
+
+export interface DietDayReport {
+  date: string;
+  summary: string;
+  balance_score: number;
+  totals: DietMacroTotals;
+  macro_split_pct: DietMacroSplit;
+  meals: DietMealBreakdown[];
+  micronutrients: DietMicronutrient[];
+  highlights: string[];
+  suggestions: string[];
+  disclaimer: string;
+}
+
+export interface DietDayReportResponse {
+  date: string;
+  entries: CookedLogEntry[];
+  report?: DietDayReport;
+}
+
 export interface CookedHistoryResponse {
   entries: CookedLogEntry[];
   days: number;

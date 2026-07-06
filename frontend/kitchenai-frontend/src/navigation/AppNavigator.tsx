@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
+import { useTranslation } from 'react-i18next';
 import { ActivityIndicator, View, StyleSheet, Platform } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { NavigationContainer, createNavigationContainerRef } from '@react-navigation/native';
@@ -103,6 +104,7 @@ function LoadingScreen() {
 
 function MainTabNavigator() {
   const { tabBarStyle } = useTabBarLayout();
+  const { t } = useTranslation();
 
   return (
     <Tab.Navigator
@@ -122,11 +124,11 @@ function MainTabNavigator() {
         headerShown: false,
       })}
     >
-      <Tab.Screen name="Home" component={HomeScreen} options={{ title: 'Home' }} />
-      <Tab.Screen name="Inventory" component={InventoryScreen} options={{ title: 'Inventory' }} />
-      <Tab.Screen name="Meals" component={MealsScreen} options={{ title: 'Meals' }} />
-      <Tab.Screen name="Cook" component={CookScreen} options={{ title: 'Cook' }} />
-      <Tab.Screen name="Shopping" component={ShoppingScreen} options={{ title: 'Shopping' }} />
+      <Tab.Screen name="Home" component={HomeScreen} options={{ title: t('tabs.home') }} />
+      <Tab.Screen name="Inventory" component={InventoryScreen} options={{ title: t('tabs.inventory') }} />
+      <Tab.Screen name="Meals" component={MealsScreen} options={{ title: t('tabs.meals') }} />
+      <Tab.Screen name="Cook" component={CookScreen} options={{ title: t('tabs.cook') }} />
+      <Tab.Screen name="Shopping" component={ShoppingScreen} options={{ title: t('tabs.shopping') }} />
     </Tab.Navigator>
   );
 }

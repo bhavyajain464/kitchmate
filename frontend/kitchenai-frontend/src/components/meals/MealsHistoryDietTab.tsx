@@ -8,6 +8,7 @@ import {
   ActivityIndicator,
   Icon,
 } from 'react-native-paper';
+import { DietNutrientAnalysis } from './DietNutrientAnalysis';
 import * as api from '../../services/api';
 import { DietAnalysisSettings } from '../../types';
 import { useUpgradePaywall } from '../../context/UpgradePaywallContext';
@@ -65,13 +66,16 @@ export function MealsHistoryDietTab() {
           <ActivityIndicator style={{ marginVertical: 12 }} color="#2E7D32" />
         ) : dietSettings?.eligible ? (
           <>
+            {dietSettings.delivery_summary ? (
+              <Text variant="bodySmall" style={styles.dietMeta}>{dietSettings.delivery_summary}</Text>
+            ) : null}
             {!dietSettings.smtp_configured ? (
               <Text variant="bodySmall" style={styles.warn}>
                 Email delivery is not configured on the server yet (SMTP).
               </Text>
             ) : null}
             <View style={styles.switchRow}>
-              <Text variant="bodyMedium">Email me my daily meal summary</Text>
+              <Text variant="bodyMedium">Email me my weekly meal summary</Text>
               <Switch
                 value={dietSettings.email_enabled}
                 onValueChange={(v) => void toggleDietEmail(v)}
@@ -83,7 +87,7 @@ export function MealsHistoryDietTab() {
         ) : (
           <>
             <Text variant="bodySmall" style={styles.dietMeta}>
-              Upgrade to Elite for AI diet insights and the nightly digest. Pro covers meal suggestions only.
+              Upgrade to Elite for AI diet insights and the weekly email digest. Pro covers meal suggestions only.
             </Text>
             <Button
               mode="contained"
@@ -97,6 +101,8 @@ export function MealsHistoryDietTab() {
           </>
         )}
       </Surface>
+
+      <DietNutrientAnalysis eligible={dietSettings?.eligible} />
     </View>
   );
 }
@@ -109,6 +115,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#F1F8E9',
     borderWidth: 1,
     borderColor: '#C8E6C9',
+    marginBottom: 16,
   },
   dietHeader: { flexDirection: 'row', gap: 12, marginBottom: 12 },
   dietHeaderText: { flex: 1 },

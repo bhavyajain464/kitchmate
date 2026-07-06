@@ -6,6 +6,7 @@ import * as api from '../services/api';
 import type { DishRecipe } from '../types';
 import { palette } from '../theme';
 import { showAppError } from '../utils/alertMessage';
+import { userFacingError } from '../utils/userFacingError';
 
 type Props = {
   visible: boolean;
@@ -33,7 +34,7 @@ export function DishRecipeSheet({ visible, dishId, dishName, onDismiss }: Props)
       if (!active) return;
       setRecipe(null);
       setLoading(false);
-      showAppError(err instanceof Error ? err.message : 'Could not load recipe');
+      showAppError(userFacingError(err, 'Could not load recipe'));
     });
     return () => {
       active = false;
@@ -43,11 +44,16 @@ export function DishRecipeSheet({ visible, dishId, dishName, onDismiss }: Props)
   const title = recipe?.title?.trim() || dishName?.trim() || 'Recipe';
 
   return (
-    <BottomSheet visible={visible} onDismiss={onDismiss} title={title} subtitle="Cooking instructions">
+    <BottomSheet visible={visible} onDismiss={onDismiss} title={title}>
       {loading && !recipe ? (
         <ActivityIndicator color={palette.primary} style={{ marginVertical: 24 }} />
       ) : (
-        <DishRecipeContent loading={loading} recipe={recipe} dishName={dishName} />
+        <DishRecipeContent
+          loading={loading}
+          recipe={recipe}
+          dishId={dishId}
+          dishName={dishName}
+        />
       )}
     </BottomSheet>
   );

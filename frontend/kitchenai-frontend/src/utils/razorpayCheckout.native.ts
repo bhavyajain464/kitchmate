@@ -1,6 +1,7 @@
 import { InteractionManager } from 'react-native';
 import { paymentCheckoutRef } from '../context/PaymentCheckoutContext';
 import { CheckoutOrderResponse, VerifyCheckoutRequest } from '../types';
+import { userFacingError } from './userFacingError';
 
 type RazorpayNativeError = {
   code?: number | string;
@@ -101,7 +102,7 @@ export async function openRazorpayCheckout(
       const msg =
         webErr instanceof Error ? webErr.message : 'Could not open payment';
       if (msg === 'Payment cancelled') throw webErr;
-      throw new Error(msg);
+      throw new Error(userFacingError(webErr, 'Could not open payment.'));
     }
   }
 }

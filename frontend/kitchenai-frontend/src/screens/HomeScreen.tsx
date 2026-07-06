@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
+import { useTranslation } from 'react-i18next';
 import {
   StyleSheet,
   View,
@@ -38,11 +39,12 @@ import { useProductTour } from '../context/ProductTourContext';
 import { APP_TOUR_TARGET_IDS } from '../tour/appTourSteps';
 import { useTourScreenScroll } from '../hooks/useTourScreenScroll';
 
-function getGreeting(): string {
+function useGreeting(): string {
+  const { t } = useTranslation();
   const h = new Date().getHours();
-  if (h < 12) return 'Good Morning';
-  if (h < 17) return 'Good Afternoon';
-  return 'Good Evening';
+  if (h < 12) return t('greeting.morning');
+  if (h < 17) return t('greeting.afternoon');
+  return t('greeting.evening');
 }
 
 function formatItemName(name: string): string {
@@ -53,16 +55,20 @@ function formatItemName(name: string): string {
     .join(' ');
 }
 
-function expiringDaysLabel(days: number): { text: string; urgent: boolean } {
-  if (days <= 0) return { text: 'Today', urgent: true };
-  if (days === 1) return { text: '1 day', urgent: true };
-  if (days <= 2) return { text: `${days} days`, urgent: true };
-  return { text: `${days} days`, urgent: false };
-}
-
 const EXPIRING_PREVIEW = 4;
 
 export function HomeScreen({ navigation }: any) {
+  const { t } = useTranslation();
+  const greeting = useGreeting();
+  const expiringDaysLabel = useCallback(
+    (days: number) => {
+      if (days <= 0) return { text: t('home.today'), urgent: true };
+      if (days === 1) return { text: t('home.oneDay'), urgent: true };
+      if (days <= 2) return { text: t('home.days', { count: days }), urgent: true };
+      return { text: t('home.days', { count: days }), urgent: false };
+    },
+    [t],
+  );
   const { user } = useAuth();
   const insets = useSafeAreaInsets();
   const { contentPaddingBottom } = useTabBarLayout();
@@ -161,7 +167,7 @@ export function HomeScreen({ navigation }: any) {
     return () => clearTimeout(timer);
   }, [isFocused, loading, requestAutoStartTour]);
 
-  const firstName = user?.name?.split(' ')[0] || 'there';
+  const firstName = user?.name?.split(' ')[0] || t('greeting.there');
 
   return (
     <>
@@ -171,7 +177,7 @@ export function HomeScreen({ navigation }: any) {
         <View style={[styles.header, { paddingTop: insets.top + 14 }]}>
           <View style={styles.headerTop}>
             <View style={styles.headerText}>
-              <Text variant="bodyMedium" style={styles.greeting}>{getGreeting()},</Text>
+              <Text variant="bodyMedium" style={styles.greeting}>{greeting},</Text>
               <Text variant="headlineMedium" style={styles.heroName}>{firstName}</Text>
             </View>
             <TourTarget
@@ -194,7 +200,7 @@ export function HomeScreen({ navigation }: any) {
         <ActivityIndicator style={{ marginTop: 40 }} size="large" />
       ) : (
         <>
-          <Text variant="titleMedium" style={styles.sectionTitle}>Quick Actions</Text>
+          <Text variant="titleMedium" style={styles.sectionTitle}>{t('home.quickActions')}</Text>
           <TourTarget
             id={APP_TOUR_TARGET_IDS.quickActions}
             onLayoutY={(y) => rememberTargetOffset(APP_TOUR_TARGET_IDS.quickActions, y)}
@@ -211,7 +217,7 @@ export function HomeScreen({ navigation }: any) {
             />
           </TourTarget>
 
-          <Text variant="titleMedium" style={styles.sectionTitle}>Meal of the Day</Text>
+          <Text variant="titleMedium" style={styles.sectionTitle}>{t('home.mealOfDay')}</Text>
           <TourTarget
             id={APP_TOUR_TARGET_IDS.mealOfDay}
             onLayoutY={(y) => rememberTargetOffset(APP_TOUR_TARGET_IDS.mealOfDay, y)}
@@ -245,11 +251,10 @@ export function HomeScreen({ navigation }: any) {
                   </View>
                   <View style={styles.expiredBannerText}>
                     <Text variant="titleSmall" style={styles.expiredBannerTitle}>
-                      ⚠️ {expiredItems.length} item{expiredItems.length !== 1 ? 's' : ''} removed from inventory
-                      (Expired)
+                      ⚠️ {t('home.expiredBanner', { count: expiredItems.length })}
                     </Text>
                     <Text variant="bodySmall" style={styles.expiredBannerSub}>
-                      Tap to reorder
+                      {t('home.tapToReorder')}
                     </Text>
                   </View>
                   <Icon source="chevron-right" size={22} color={palette.error} />
@@ -273,7 +278,7 @@ export function HomeScreen({ navigation }: any) {
                         <Icon source="clock-alert-outline" size={20} color="#E65100" />
                       </View>
                       <Text variant="titleSmall" style={styles.expiringPanelTitle}>
-                        Expiring soon
+                        {t('home.expiringSoon')}
                       </Text>
                       <View style={styles.expiringCountPill}>
                         <Text style={styles.expiringCountText}>{expiringItems.length}</Text>
@@ -357,10 +362,10 @@ export function HomeScreen({ navigation }: any) {
                   <Surface style={styles.emptyPantryCard} elevation={1}>
                     <IconButton icon="fridge-outline" size={32} iconColor="#388E3C" style={{ margin: 0 }} />
                     <Text variant="titleSmall" style={styles.emptyPantryTitle}>
-                      Your kitchen is empty
+                      {t('home.emptyPantryTitle')}
                     </Text>
                     <Text variant="bodySmall" style={styles.emptyPantrySub}>
-                      Scan a bill or add items to get meal ideas
+                      {t('home.emptyPantrySub')}
                     </Text>
                   </Surface>
                 </Pressable>

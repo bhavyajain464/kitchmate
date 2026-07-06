@@ -1,7 +1,13 @@
-import { useCallback, useRef, type RefObject } from 'react';
-import { Platform, type FlatList } from 'react-native';
+import { useCallback, useEffect, useRef, type RefObject } from 'react';
+import {
+  Platform,
+  type FlatList,
+  type NativeScrollEvent,
+  type NativeSyntheticEvent,
+} from 'react-native';
 
 const END_REACHED_THRESHOLD = 0.35;
+const MAX_USER_STEP = 200;
 
 export function getListScrollElement<T>(listRef: RefObject<FlatList<T> | null>): HTMLElement | null {
   const node = listRef.current as unknown as {
@@ -79,4 +85,91 @@ export function useFlatListOnEndReached<T = unknown>({
   };
 
   return { flatListProps, resetEndReached };
+}
+
+/**
+ * Web FlatList scroll handling (same pattern as InventoryScreen):
+ * defeat browser scroll-restore, gate pagination until a real gesture, and
+ * load more from scroll position when onEndReached does not fire on wheel.
+ */
+export function useWebFlatListScroll<T>(
+  listRef: RefObject<FlatList<T> | null>,
+  onLoadMore: () => void | Promise<void>,
+) {
+  const userScrolledRef = useRef(false);
+  const intendedScrollYRef = useRef(0);
+  const onLoadMoreRef = useRef(onLoadMore);
+  onLoadMoreRef.current = onLoadMore;
+
+  useEffect(() => {
+    if (Platform.OS !== 'web' || typeof window === 'undefined') return;
+    const prev = window.history.scrollRestoration;
+    window.history.scrollRestoration = 'manual';
+    return () => {
+      window.history.scrollRestoration = prev;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (Platform.OS !== 'web' || typeof window === 'undefined') return;
+    const markScrolled = () => {
+      userScrolledRef.current = true;
+    };
+    window.addEventListener('wheel', markScrolled, { passive: true });
+    window.addEventListener('touchstart', markScrolled, { passive: true });
+    window.addEventListener('keydown', markScrolled);
+    return () => {
+      window.removeEventListener('wheel', markScrolled);
+      window.removeEventListener('touchstart', markScrolled);
+      window.removeEventListener('keydown', markScrolled);
+    };
+  }, []);
+
+  const resetUserScroll = useCallback(() => {
+    userScrolledRef.current = false;
+    intendedScrollYRef.current = 0;
+  }, []);
+
+  const allowLoadMore = useCallback(() => {
+    if (Platform.OS === 'web' && !userScrolledRef.current) return false;
+    return true;
+  }, []);
+
+  const handleListScroll = useCallback(
+    (e: NativeSyntheticEvent<NativeScrollEvent>) => {
+      if (Platform.OS !== 'web') return;
+      if (!userScrolledRef.current) {
+        scrollFlatListToTop(listRef);
+        intendedScrollYRef.current = 0;
+        return;
+      }
+      const { contentOffset, layoutMeasurement, contentSize } = e.nativeEvent;
+      const y = contentOffset.y;
+      if (y - intendedScrollYRef.current > MAX_USER_STEP) {
+        const el = getListScrollElement(listRef);
+        if (el) el.scrollTop = intendedScrollYRef.current;
+        return;
+      }
+      intendedScrollYRef.current = y;
+      const distanceFromBottom = contentSize.height - layoutMeasurement.height - y;
+      if (distanceFromBottom < layoutMeasurement.height * 0.5) {
+        void onLoadMoreRef.current();
+      }
+    },
+    [listRef],
+  );
+
+  return { handleListScroll, allowLoadMore, resetUserScroll };
+}
+
+/** Web-only contentContainerStyle helper for paginated FlatLists. */
+export function webFlatListContentStyle(
+  base: object,
+  itemCount: number,
+): object[] {
+  return [
+    base,
+    itemCount === 0 ? { flexGrow: 1 } : null,
+    Platform.OS === 'web' ? ({ overflowAnchor: 'none' } as const) : null,
+  ].filter(Boolean) as object[];
 }

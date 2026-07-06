@@ -1,0 +1,82 @@
+{
+  "tabs": {
+    "home": "ಮುಖಪುಟ",
+    "inventory": "ಸಾಮಾನು",
+    "meals": "ಊಟ",
+    "cook": "ಅಡುಗೆ",
+    "shopping": "ಖರೀದಿ"
+  },
+  "greeting": {
+    "morning": "ಶುಭೋದಯ",
+    "afternoon": "ನಮಸ್ಕಾರ",
+    "evening": "ಶುಭ ಸಂಜೆ",
+    "there": "ಅವರೇ"
+  },
+  "home": {
+    "quickActions": "ತ್ವರಿತ ಕ್ರಮಗಳು",
+    "mealOfDay": "ಇಂದಿನ ಊಟ",
+    "expiringSoon": "ಶೀಘ್ರದಲ್ಲೇ ಮುಗಿಯುತ್ತದೆ",
+    "tapToReorder": "ಮರು ಆರ್ಡರ್ ಮಾಡಲು ಟ್ಯಾಪ್ ಮಾಡಿ",
+    "expiredBanner": "ಇನ್ವೆಂಟರಿಯಿಂದ {{count}} ವಸ್ತು ತೆಗೆದುಹಾಕಲಾಗಿದೆ (ಅವಧಿ ಮುಗಿದಿದೆ)",
+    "expiredBanner_other": "ಇನ್ವೆಂಟರಿಯಿಂದ {{count}} ವಸ್ತುಗಳನ್ನು ತೆಗೆದುಹಾಕಲಾಗಿದೆ (ಅವಧಿ ಮುಗಿದಿದೆ)",
+    "emptyPantryTitle": "ನಿಮ್ಮ ಅಡುಗೆಮನೆ ಖಾಲಿಯಾಗಿದೆ",
+    "emptyPantrySub": "ಬಿಲ್ ಸ್ಕ್ಯಾನ್ ಮಾಡಿ ಅಥವಾ ಊಟ ಐಡಿಯಾಗಳಿಗಾಗಿ ವಸ್ತುಗಳನ್ನು ಸೇರಿಸಿ",
+    "today": "ಇಂದು",
+    "days": "{{count}} ದಿನಗಳು",
+    "oneDay": "1 ದಿನ"
+  },
+  "quickActions": {
+    "aiBuddy": "AI ಸಹಾಯಕ",
+    "addItem": "ವಸ್ತು ಸೇರಿಸಿ",
+    "mealIdea": "ಊಟ ಐಡಿಯಾ",
+    "logMeal": "ಊಟ ಲಾಗ್",
+    "addToList": "ಪಟ್ಟಿಗೆ ಸೇರಿಸಿ"
+  },
+  "inventory": {
+    "title": "ಸಾಮಾನು",
+    "subtitle": "ನಿಮ್ಮ ಅಡುಗೆಮನೆ, ಸಂಪೂರ್ಣ ಟ್ರ್ಯಾಕ್",
+    "subtitleLoading": "ಅಡುಗೆಮನೆ ಲೋಡ್ ಆಗುತ್ತಿದೆ…",
+    "searchPlaceholder": "ವಸ್ತುಗಳನ್ನು ಹುಡುಕಿ…",
+    "addItem": "ವಸ್ತು ಸೇರಿಸಿ",
+    "addManually": "ಹಸ್ತಚಾಲಿತವಾಗಿ ಸೇರಿಸಿ"
+  },
+  "shopping": {
+    "title": "ಖರೀದಿ ಪಟ್ಟಿ",
+    "subtitle": "ಊಟ ಯೋಜನೆಯಂತೆ ಕಿರಾಣಿ",
+    "searchPlaceholder": "ಪಟ್ಟಿ ಹುಡುಕಿ…",
+    "addItem": "ವಸ್ತು ಸೇರಿಸಿ"
+  },
+  "meals": {
+    "planningTitle": "ಊಟ ಯೋಜನೆ",
+    "planningSubtitle": "ನಿಮ್ಮ ಪ್ಯಾಂಟ್ರಿಯಂತೆ ಊಟಗಳು",
+    "dietTitle": "ಆಹಾರ",
+    "dietSubtitle": "AI ಒಳನೋಟಗಳು ಮತ್ತು ರಾತ್ರಿ ಸಾರಾಂಶ"
+  },
+  "cook": {
+    "title": "ಅಡುಗೆ",
+    "subtitleMessage": "ನಿಮ್ಮ ಅಡುಗೆಯವರಿಗೆ ಸಂದೇಶ",
+    "subtitleRecipe": "ಹಂತ ಹಂತವಾಗಿ ರೆಸಿಪಿ",
+    "cookingMode": "ರೆಸಿಪಿಗಳು",
+    "cookMode": "ಅಡುಗೆಯವರಿಗೆ ಸಂದೇಶ",
+    "cookingLabel": "ಅಡುಗೆ"
+  },
+  "profile": {
+    "settings": "ಸೆಟ್ಟಿಂಗ್ಸ್",
+    "preferences": "ಆದ್ಯತೆಗಳು",
+    "appLanguage": "ಅಪ್ಲಿಕೇಶನ್ ಭಾಷೆ",
+    "appLanguageHint": "ಮೆನು ಮತ್ತು ಲೇಬಲ್‌ಗಳ ಭಾಷೆ",
+    "languageEn": "English",
+    "languageHi": "हिन्दी",
+    "languageKn": "ಕನ್ನಡ",
+    "help": "ಸಹಾಯ",
+    "takeTour": "ಪ್ರವಾಸ ತೆಗೆದುಕೊಳ್ಳಿ",
+    "takeTourSub": "ಮುಖಪುಟ, ಸಾಮಾನು, ಊಟ, ಅಡುಗೆ ಮತ್ತು ಖರೀದಿ ವಾಕ್‌ಥ್ರೂ",
+    "signOut": "ಸೈನ್ ಔಟ್",
+    "memories": "ನೆನಪುಗಳು"
+  },
+  "common": {
+    "save": "ಉಳಿಸಿ",
+    "cancel": "ರದ್ದು",
+    "loading": "ಲೋಡ್ ಆಗುತ್ತಿದೆ…"
+  }
+}

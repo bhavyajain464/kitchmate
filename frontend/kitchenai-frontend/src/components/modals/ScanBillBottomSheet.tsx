@@ -25,6 +25,7 @@ import {
   isPdfBillPick,
 } from '../../utils/billImagePicker';
 import { BILL_SCAN_ALERT_MESSAGE, BILL_SCAN_ALERT_TITLE } from '../../utils/billScanMessage';
+import { userFacingError } from '../../utils/userFacingError';
 import { showAppAlert, showAppInfo, showAppSuccess } from '../../utils/alertMessage';
 import { showUpgradeMessage } from '../../utils/upgrade';
 
@@ -145,8 +146,7 @@ export function ScanBillBottomSheet({ visible, onDismiss, onAdded, groupMeta }: 
         showUpgradeMessage(e.message, startUpgrade);
         void refreshEntitlements();
       } else {
-        const message =
-          e instanceof Error && e.message.trim() ? e.message.trim() : BILL_SCAN_ALERT_MESSAGE;
+        const message = userFacingError(e, BILL_SCAN_ALERT_MESSAGE);
         showAppAlert(BILL_SCAN_ALERT_TITLE, message);
       }
     } finally {
