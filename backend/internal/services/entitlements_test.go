@@ -7,13 +7,12 @@ import (
 )
 
 func TestCanBillScanFreeTier(t *testing.T) {
-	ent := buildEntitlements(TierFree, "", nil, 1)
-	if ok, _ := CanBillScan(ent); !ok {
-		t.Fatal("expected scan allowed at 1/2")
+	ent := buildEntitlements(TierFree, "", nil, 2)
+	if !ent.IsElite || ent.BillScanLimit != -1 {
+		t.Fatal("launch promo should grant elite unlimited scans")
 	}
-	ent.BillScansUsed = 2
-	if ok, _ := CanBillScan(ent); ok {
-		t.Fatal("expected block at 2/2")
+	if ok, _ := CanBillScan(ent); !ok {
+		t.Fatal("expected unlimited scans for all users")
 	}
 }
 
@@ -41,14 +40,11 @@ func TestCanUseMealCategory(t *testing.T) {
 	}
 }
 
-func TestExpiredProRevertsToFree(t *testing.T) {
+func TestExpiredProStillGetsEliteLaunchPromo(t *testing.T) {
 	past := time.Now().Add(-time.Hour)
 	ent := buildEntitlements(TierPro, IntervalMonthly, &past, 0)
-	if ent.PlanTier != TierFree {
-		t.Fatalf("expected free after expiry, got %s", ent.PlanTier)
-	}
-	if ent.IsPro {
-		t.Fatal("expired pro should not have pro features")
+	if ent.PlanTier != TierElite || !ent.IsPro || !ent.IsElite {
+		t.Fatalf("launch promo should grant elite regardless of DB expiry, got tier=%s", ent.PlanTier)
 	}
 }
 
@@ -71,13 +67,13 @@ func TestExtendPlanExpiryStacks(t *testing.T) {
 func TestProEntitlementsJSONFields(t *testing.T) {
 	future := time.Now().Add(365 * 24 * time.Hour)
 	ent := buildEntitlements(TierPro, IntervalYearly, &future, 0)
-	if !ent.IsPro {
-		t.Fatal("expected is_pro true for active pro")
+	if !ent.IsPro || !ent.IsElite {
+		t.Fatal("expected is_pro and is_elite true during launch promo")
 	}
-	if ent.PlanTier != TierPro {
-		t.Fatalf("expected plan_tier pro, got %s", ent.PlanTier)
+	if ent.PlanTier != TierElite {
+		t.Fatalf("expected plan_tier elite, got %s", ent.PlanTier)
 	}
 	if ent.BillScanLimit != -1 {
-		t.Fatal("pro should have unlimited scans")
+		t.Fatal("elite should have unlimited scans")
 	}
 }

@@ -106,11 +106,13 @@ func effectiveBillScansUsed(count int, countDate sql.NullTime) int {
 }
 
 func buildEntitlements(tier, interval string, expiresAt *time.Time, scans int) Entitlements {
-	tier = effectiveTier(NormalizeTier(tier), expiresAt)
+	_ = effectiveTier(NormalizeTier(tier), expiresAt)
 	interval = NormalizeInterval(interval)
 
-	isPro := tier == TierPro || tier == TierElite
-	isElite := tier == TierElite
+	// Launch promo: grant Elite entitlements to every user (runtime only; DB plan unchanged).
+	tier = TierElite
+	isPro := true
+	isElite := true
 
 	limit := FreeBillScanLimit
 	remaining := limit - scans

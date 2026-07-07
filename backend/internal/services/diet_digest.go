@@ -525,9 +525,6 @@ func (s *DietDigestService) listRecipients(ctx context.Context) ([]dietDigestRec
 	rows, err := s.db.QueryContext(ctx, `
 		SELECT user_id::text FROM users
 		WHERE diet_analysis_email_enabled = TRUE
-		  AND COALESCE(plan_tier, 'free') = 'elite'
-		  AND plan_expires_at IS NOT NULL
-		  AND plan_expires_at > NOW()
 	`)
 	if err != nil {
 		return nil, err
