@@ -7,6 +7,7 @@ import {
   RefreshControl,
   Platform,
   Pressable,
+  KeyboardAvoidingView,
 } from 'react-native';
 import {
   Text,
@@ -26,6 +27,8 @@ import { buildWaMeUrl, isIosHomeScreenWeb, openWhatsAppUrl } from '../utils/open
 import { CookedLogEntry, CookProfile } from '../types';
 import { useTabBarLayout } from '../hooks/useTabBarLayout';
 import { useScrollToTopOnTabFocus } from '../hooks/useScrollToTopOnTabFocus';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { keyboardAvoidingBehavior, keyboardAwareScrollViewProps } from '../utils/keyboardAvoidance';
 import { TabScreenHeader, TabScreenToolbarRow } from '../components/TabScreenHeader';
 import { MessageComposer } from '../components/MessageComposer';
 import { BottomSheet, bottomSheetInput, bottomSheetPrimaryBtn } from '../components/BottomSheet';
@@ -58,6 +61,7 @@ function primaryDishFromMessage(message: string): string {
 
 export function CookScreen() {
   const { t } = useTranslation();
+  const insets = useSafeAreaInsets();
   const route = useRoute<{ key: string; name: string; params?: CookRouteParams }>();
   const navigation = useNavigation<BottomTabNavigationProp<MainTabParamList, 'Cook'>>();
   const { contentPaddingBottom } = useTabBarLayout();
@@ -346,6 +350,11 @@ export function CookScreen() {
 
   return (
     <>
+    <KeyboardAvoidingView
+      style={styles.root}
+      behavior={keyboardAvoidingBehavior()}
+      keyboardVerticalOffset={Platform.OS === 'ios' ? insets.top : 0}
+    >
     <View style={styles.root}>
       <TabScreenHeader
         title={t('cook.title')}
@@ -422,7 +431,7 @@ export function CookScreen() {
         contentContainerStyle={[styles.scrollContent, { paddingBottom: contentPaddingBottom(56) }]}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
         showsVerticalScrollIndicator={false}
-        keyboardShouldPersistTaps="handled"
+        {...keyboardAwareScrollViewProps}
       >
       {/* Cook profile — compact row; edit opens bottom sheet */}
         <Surface style={styles.profileCard} elevation={1}>
@@ -526,6 +535,7 @@ export function CookScreen() {
         </View>
       )}
     </View>
+    </KeyboardAvoidingView>
 
     <BottomSheet
       visible={isEditingProfile}

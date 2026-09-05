@@ -9,7 +9,8 @@ import (
 )
 
 // DefaultGroqModel is used for meals, bill scan, shelf-life, WhatsApp NLU, and diet analysis.
-const DefaultGroqModel = "openai/gpt-oss-120b"
+// Qwen with reasoning_effort=none (set in groqDoChat) avoids burning max_tokens on <think>.
+const DefaultGroqModel = "qwen/qwen3.6-27b"
 
 type Config struct {
 	Port            string
@@ -29,14 +30,16 @@ type Config struct {
 	GoogleIOSClientID     string
 	GoogleAndroidClientID string
 	SessionTokenSecret    string
-	KafkaBrokers          string
-	KafkaTopicShelfLife   string
-	KafkaSASLEnabled      bool
+	KafkaBrokers            string
+	KafkaTopicShelfLife     string
+	KafkaTopicDietAnalysis  string
+	KafkaSASLEnabled        bool
 	KafkaSASLMechanism    string
 	KafkaUsername         string
 	KafkaPassword         string
 	KafkaTLSEnabled       bool
-	KafkaCAFile           string
+	KafkaCAFile           string // path to PEM file (local/dev)
+	KafkaCAPem            string // inline PEM (Cloud Run via GitHub Secrets)
 
 	// Kafka throughput / concurrency tuning (defaults favor minimal broker & CPU load).
 	KafkaWriterBatchSize             int
@@ -89,6 +92,9 @@ type Config struct {
 	SMTPPass string
 	SMTPFrom string
 
+	// ExpoAccessToken authorizes server-side push via Expo Push API (EXPO_ACCESS_TOKEN).
+	ExpoAccessToken string
+
 	// Force-update gates (0 build = disabled). Bump on each required store release.
 	MinAndroidVersion string
 	MinIOSVersion     string
@@ -113,6 +119,11 @@ func (c *Config) AppVersionEnforcementEnabled() bool {
 // SMTPConfigured reports whether outbound email can be sent.
 func (c *Config) SMTPConfigured() bool {
 	return c != nil && strings.TrimSpace(c.SMTPHost) != "" && strings.TrimSpace(c.SMTPFrom) != ""
+}
+
+// ExpoPushConfigured reports whether server can send Expo push notifications.
+func (c *Config) ExpoPushConfigured() bool {
+	return c != nil && strings.TrimSpace(c.ExpoAccessToken) != ""
 }
 
 // RazorpayConfig holds credentials for the active Razorpay environment.
@@ -170,12 +181,14 @@ func Load() (*Config, error) {
 		kafkaBrokers = ""
 	}
 	kafkaTopicShelfLife := getEnv("KAFKA_TOPIC_SHELFLIFE", "shelf-life-estimate")
+	kafkaTopicDietAnalysis := getEnv("KAFKA_TOPIC_DIET_ANALYSIS", "diet-meal-analysis")
 	kafkaSASLEnabled := getEnvBool("KAFKA_SASL_ENABLED", false)
 	kafkaSASLMechanism := strings.ToUpper(strings.TrimSpace(getEnv("KAFKA_SASL_MECHANISM", "PLAIN")))
 	kafkaUsername := getEnv("KAFKA_USERNAME", "")
 	kafkaPassword := getEnv("KAFKA_PASSWORD", "")
 	kafkaTLSEnabled := getEnvBool("KAFKA_TLS_ENABLED", false)
 	kafkaCAFile := getEnv("KAFKA_CA_FILE", "")
+	kafkaCAPem := getEnv("KAFKA_CA_PEM", "")
 
 	// Producer: small batches, long flush window, synchronous writes by default (no extra async fire-and-forget).
 	kafkaWriterBatchSize := getEnvInt("KAFKA_WRITER_BATCH_SIZE", 1)
@@ -298,12 +311,14 @@ func Load() (*Config, error) {
 		SessionTokenSecret:                 sessionTokenSecret,
 		KafkaBrokers:                       kafkaBrokers,
 		KafkaTopicShelfLife:                kafkaTopicShelfLife,
+		KafkaTopicDietAnalysis:             kafkaTopicDietAnalysis,
 		KafkaSASLEnabled:                   kafkaSASLEnabled,
 		KafkaSASLMechanism:                 kafkaSASLMechanism,
 		KafkaUsername:                      kafkaUsername,
 		KafkaPassword:                      kafkaPassword,
 		KafkaTLSEnabled:                    kafkaTLSEnabled,
 		KafkaCAFile:                        kafkaCAFile,
+		KafkaCAPem:                         kafkaCAPem,
 		KafkaWriterBatchSize:               kafkaWriterBatchSize,
 		KafkaWriterBatchBytes:              kafkaWriterBatchBytes,
 		KafkaWriterBatchTimeoutSec:         kafkaWriterBatchTimeoutSec,
@@ -337,6 +352,7 @@ func Load() (*Config, error) {
 		SMTPUser:                           getEnv("SMTP_USER", ""),
 		SMTPPass:                           getEnv("SMTP_PASS", ""),
 		SMTPFrom:                           strings.TrimSpace(getEnv("SMTP_FROM", "")),
+		ExpoAccessToken:                    strings.TrimSpace(getEnv("EXPO_ACCESS_TOKEN", "")),
 		MinAndroidVersion:                  strings.TrimSpace(getEnv("MIN_ANDROID_VERSION", "")),
 		MinIOSVersion:                      strings.TrimSpace(getEnv("MIN_IOS_VERSION", "")),
 		MinAndroidBuild:                    getEnvInt("MIN_ANDROID_BUILD", 0),
@@ -399,8 +415,8 @@ func (c *Config) ValidateKafkaAuth() error {
 			return fmt.Errorf("KAFKA_SASL_ENABLED=true but KAFKA_PASSWORD is empty")
 		}
 	}
-	if c.KafkaTLSEnabled && strings.TrimSpace(c.KafkaCAFile) == "" {
-		return fmt.Errorf("KAFKA_TLS_ENABLED=true but KAFKA_CA_FILE is empty")
+	if c.KafkaTLSEnabled && strings.TrimSpace(c.KafkaCAFile) == "" && strings.TrimSpace(c.KafkaCAPem) == "" {
+		return fmt.Errorf("KAFKA_TLS_ENABLED=true but KAFKA_CA_FILE and KAFKA_CA_PEM are both empty")
 	}
 	return nil
 }

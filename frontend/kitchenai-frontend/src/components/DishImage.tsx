@@ -1,6 +1,7 @@
 import React, { useMemo } from 'react';
-import { Image, StyleSheet, View, type FlexAlignType, type StyleProp, type ViewStyle } from 'react-native';
+import { StyleSheet, View, type FlexAlignType, type StyleProp, type ViewStyle } from 'react-native';
 import { Icon } from 'react-native-paper';
+import { OptimizedImage } from './OptimizedImage';
 import {
   DISH_IMAGE_ASPECT_RATIO,
   getDishImageSource,
@@ -69,7 +70,7 @@ export function DishImage({
 
   return (
     <View style={frameStyle} accessibilityRole="image" accessibilityLabel={accessibilityLabel ?? dishName ?? 'Meal photo'}>
-      <Image
+      <OptimizedImage
         source={source}
         style={styles.image}
         resizeMode="contain"

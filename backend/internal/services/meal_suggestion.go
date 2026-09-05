@@ -121,11 +121,11 @@ func (s *MealSuggestionService) getExpiringItems(days int) ([]models.ExpiringIte
 			qty,
 			unit,
 			estimated_expiry,
-			EXTRACT(DAY FROM estimated_expiry - CURRENT_DATE)::integer as days_until_expiry
+			(estimated_expiry - CURRENT_DATE)::integer as days_until_expiry
 		FROM inventory 
 		WHERE estimated_expiry IS NOT NULL 
 			AND estimated_expiry >= CURRENT_DATE - INTERVAL '2 days'
-			AND estimated_expiry <= CURRENT_DATE + $1 * INTERVAL '1 day'
+			AND estimated_expiry <= CURRENT_DATE + ($1::int * INTERVAL '1 day')
 		ORDER BY estimated_expiry ASC
 	`
 
@@ -179,14 +179,19 @@ func (s *MealSuggestionService) getCookProfile() (*models.CookProfile, error) {
 
 // getUserPreferences retrieves user preferences
 func (s *MealSuggestionService) getUserPreferences() (*models.UserPreferences, error) {
-	query := `SELECT user_id, dislikes, dietary_tags, fav_cuisines FROM user_prefs LIMIT 1`
+	query := `SELECT user_id,
+		COALESCE(dislikes, '{}'),
+		COALESCE(dietary_tags, '{}'),
+		COALESCE(fav_cuisines, '{}')
+		FROM user_prefs LIMIT 1`
 
 	var prefs models.UserPreferences
+	var dislikes, dietaryTags, favCuisines pq.StringArray
 	err := s.db.QueryRow(query).Scan(
 		&prefs.UserID,
-		&prefs.Dislikes,
-		&prefs.DietaryTags,
-		&prefs.FavCuisines,
+		&dislikes,
+		&dietaryTags,
+		&favCuisines,
 	)
 	if err != nil {
 		if err == sql.ErrNoRows {
@@ -194,7 +199,9 @@ func (s *MealSuggestionService) getUserPreferences() (*models.UserPreferences, e
 		}
 		return nil, err
 	}
-
+	prefs.Dislikes = []string(dislikes)
+	prefs.DietaryTags = []string(dietaryTags)
+	prefs.FavCuisines = []string(favCuisines)
 	return &prefs, nil
 }
 

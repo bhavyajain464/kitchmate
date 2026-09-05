@@ -10,6 +10,7 @@ import { DISH_RECIPE_PAGE_SIZE, fetchDishRecipePage } from '../services/api';
 import type { DishRecipeSummary } from '../types';
 import { palette } from '../theme';
 import { scrollFlatListToTop, useFlatListOnEndReached, useWebFlatListScroll, webFlatListContentStyle } from '../utils/infiniteScroll';
+import { keyboardAwareScrollViewProps } from '../utils/keyboardAvoidance';
 import { userFacingError } from '../utils/userFacingError';
 
 type Props = {
@@ -266,7 +267,7 @@ export function CookingRecipesPanel({
           keyExtractor={(item) => item.dish_id}
           style={styles.listFlex}
           contentContainerStyle={listContentStyle}
-          keyboardShouldPersistTaps="handled"
+          {...keyboardAwareScrollViewProps}
           showsVerticalScrollIndicator={false}
           scrollEnabled={summaries.length > 0}
           onScroll={handleListScroll}

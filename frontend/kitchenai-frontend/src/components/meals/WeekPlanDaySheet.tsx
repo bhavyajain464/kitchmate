@@ -1,12 +1,12 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
-  Image,
   Pressable,
   StyleSheet,
   View,
   useWindowDimensions,
   type LayoutChangeEvent,
 } from 'react-native';
+import { OptimizedImage } from '../OptimizedImage';
 import { Button, Card, IconButton, Menu, Modal, Portal, Text } from 'react-native-paper';
 import { MealTagPill, mealTagPillRowStyle } from './MealTagPill';
 import { BottomSheet } from '../BottomSheet';
@@ -115,7 +115,7 @@ function DishImagePreviewModal({
             accessibilityLabel="Close preview"
           />
         </View>
-        <Image source={source} style={styles.previewImage} resizeMode="contain" />
+        <OptimizedImage source={source} style={styles.previewImage} resizeMode="contain" />
       </Modal>
     </Portal>
   );

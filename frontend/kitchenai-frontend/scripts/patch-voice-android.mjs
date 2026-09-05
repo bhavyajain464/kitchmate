@@ -6,6 +6,7 @@ const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const candidates = [
   path.join(root, 'node_modules/@react-native-voice/voice/android/build.gradle'),
   path.join(root, '..', 'node_modules/@react-native-voice/voice/android/build.gradle'),
+  path.join(root, 'node_modules/@react-native-voice/voice/android/build.gradle.kts'),
 ];
 
 for (const file of candidates) {

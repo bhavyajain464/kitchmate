@@ -1,0 +1,50 @@
+name: Staging API suite
+
+on:
+  workflow_dispatch:
+    inputs:
+      include_llm:
+        description: "Exercise LLM-backed routes (STAGING_INCLUDE_LLM)"
+        type: boolean
+        default: false
+      include_admin_write:
+        description: "Exercise mutating admin routes"
+        type: boolean
+        default: false
+      include_deep:
+        description: "Exercise multi-step deep journeys (STAGING_INCLUDE_DEEP)"
+        type: boolean
+        default: true
+      include_side_effects:
+        description: "Allow email/push side effects"
+        type: boolean
+        default: false
+
+jobs:
+  staging-api:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: backend/go.mod
+          cache-dependency-path: backend/go.sum
+
+      - name: Run staging API suite
+        env:
+          STAGING_BASE_URL: https://kitchenai-backend-staging-208103249970.asia-south1.run.app
+          STAGING_AUTH_TOKEN: ${{ secrets.STAGING_AUTH_TOKEN }}
+          STAGING_USER_ID: ${{ secrets.STAGING_USER_ID }}
+          DATABASE_URL: ${{ secrets.STAGING_DATABASE_URL }}
+          SESSION_TOKEN_SECRET: ${{ secrets.STAGING_SESSION_TOKEN_SECRET }}
+          ADMIN_API_KEY: ${{ secrets.STAGING_ADMIN_API_KEY }}
+          STAGING_RESTAURANT_KITCHEN_ID: ${{ secrets.STAGING_RESTAURANT_KITCHEN_ID }}
+          STAGING_INCLUDE_LLM: ${{ inputs.include_llm && '1' || '0' }}
+          STAGING_INCLUDE_ADMIN_WRITE: ${{ inputs.include_admin_write && '1' || '0' }}
+          STAGING_INCLUDE_DEEP: ${{ inputs.include_deep && '1' || '0' }}
+          STAGING_INCLUDE_SIDE_EFFECTS: ${{ inputs.include_side_effects && '1' || '0' }}
+        run: chmod +x ./test_staging_api.sh && ./test_staging_api.sh

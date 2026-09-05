@@ -38,6 +38,7 @@ import { SuggestOrderCarousel } from '../components/shopping/SuggestOrderCarouse
 import type { InventoryMenuAction } from '../components/inventory/InventoryItemActionsSheet';
 import { useAppRefresh, refreshAppliesTo } from '../context/AppRefreshContext';
 import { useUndoSnackbar } from '../hooks/useUndoSnackbar';
+import { keyboardAwareScrollViewProps } from '../utils/keyboardAvoidance';
 import { restoreListEntries } from '../utils/restoreListEntries';
 import { writeOrderSuggestionsCache } from '../utils/orderSuggestionsCache';
 
@@ -628,7 +629,7 @@ export function ShoppingScreen() {
         ]}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
         showsVerticalScrollIndicator={false}
-        keyboardShouldPersistTaps="handled"
+        {...keyboardAwareScrollViewProps}
         onScroll={handleScroll}
         scrollEventThrottle={16}
       >

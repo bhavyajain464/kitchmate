@@ -21,6 +21,10 @@
     "expiredBanner_other": "{{count}} items removed from inventory (Expired)",
     "emptyPantryTitle": "Your kitchen is empty",
     "emptyPantrySub": "Scan a bill or add items to get meal ideas",
+    "freshPantryTitle": "Pantry looking great",
+    "freshPantrySub": "{{count}} items tracked — nothing expiring soon",
+    "freshPantrySub_one": "1 item tracked — nothing expiring soon",
+    "freshPantryBadge": "All clear",
     "today": "Today",
     "days": "{{count}} days",
     "oneDay": "1 day"
@@ -71,6 +75,11 @@
     "help": "Help",
     "takeTour": "Take a tour",
     "takeTourSub": "Walkthrough of Home, Inventory, Meals, Cook & Shopping",
+    "marketingPush": "Notifications",
+    "marketingPushHint": "Tips, new features, and product updates (native app only). Meal reminders are separate.",
+    "marketingPushToggle": "Product news & updates",
+    "marketingPushLoadError": "Could not load notification settings.",
+    "marketingPushSaveError": "Could not update notification settings.",
     "signOut": "Sign out",
     "memories": "Memories"
   },

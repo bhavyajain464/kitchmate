@@ -4,7 +4,6 @@ import {
   View,
   ScrollView,
   StyleSheet,
-  Image,
   Pressable,
 } from 'react-native';
 import {
@@ -27,6 +26,7 @@ import { useProductTour } from '../context/ProductTourContext';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { AppConfirmDialog } from '../components/AppConfirmDialog';
 import { BottomSheet, bottomSheetPrimaryBtn } from '../components/BottomSheet';
+import { OptimizedImage } from '../components/OptimizedImage';
 import { useAuth } from '../context/AuthContext';
 import { UserProfile, UserMemory, KitchenInfo } from '../types';
 import * as api from '../services/api';
@@ -45,6 +45,8 @@ import {
   type UserPreferencesFormValues,
 } from '../constants/userPreferences';
 import { copyToClipboard } from '../utils/copyToClipboard';
+import { keyboardAwareScrollViewProps } from '../utils/keyboardAvoidance';
+import { useKeyboardHeight } from '../hooks/useKeyboardHeight';
 
 const MEMORY_DELETE_UNDO_MS = 5000;
 
@@ -63,6 +65,7 @@ export function ProfileScreen() {
   const { openUpgrade } = useUpgradePaywall();
   const { startTour } = useProductTour();
   const insets = useSafeAreaInsets();
+  const keyboardHeight = useKeyboardHeight();
   const { user, signOut } = useAuth();
   const {
     entitlements,
@@ -453,10 +456,11 @@ export function ProfileScreen() {
         styles.scrollContent,
         {
           paddingBottom:
-            insets.bottom + 24 + (activeTab === 'preferences' && prefsDirty ? 88 : 0),
+            insets.bottom + 24 + (activeTab === 'preferences' && prefsDirty ? 88 : 0) + (keyboardHeight > 0 ? 16 : 0),
         },
       ]}
       showsVerticalScrollIndicator={false}
+      {...keyboardAwareScrollViewProps}
     >
       {/* Profile Header */}
       <View style={[styles.header, { paddingTop: insets.top + 14 }]}>
@@ -470,7 +474,7 @@ export function ProfileScreen() {
           />
           <View style={styles.headerLeft}>
             {user?.picture_url ? (
-              <Image source={{ uri: user.picture_url }} style={styles.avatar} />
+              <OptimizedImage source={{ uri: user.picture_url }} style={styles.avatar} />
             ) : (
               <View style={[styles.avatar, styles.avatarFallback]}>
                 <Text style={styles.avatarText}>{user?.name?.[0] || '?'}</Text>

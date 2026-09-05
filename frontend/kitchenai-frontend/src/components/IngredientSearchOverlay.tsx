@@ -3,7 +3,6 @@ import {
   FlatList,
   KeyboardAvoidingView,
   Modal,
-  Platform,
   Pressable,
   StyleSheet,
   TextInput as RNTextInput,
@@ -20,6 +19,7 @@ import {
 } from '../utils/ingredientSearch';
 import { normalizeUnit } from '../utils/units';
 import { palette } from '../theme';
+import { keyboardAvoidingBehavior } from '../utils/keyboardAvoidance';
 
 type Props = {
   visible: boolean;
@@ -71,7 +71,7 @@ export function IngredientSearchOverlay({
     >
       <KeyboardAvoidingView
         style={[styles.root, { paddingTop: insets.top }]}
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        behavior={keyboardAvoidingBehavior()}
       >
         <View style={styles.header}>
           <IconButton icon="close" size={24} onPress={onClose} accessibilityLabel="Close search" />
@@ -107,7 +107,11 @@ export function IngredientSearchOverlay({
           ]}
           ListEmptyComponent={(
             <Text style={styles.empty}>
-              {remoteLoading ? 'Searching…' : useRemote ? 'Type to search ingredients' : 'No ingredients match'}
+              {remoteLoading
+                ? 'Searching…'
+                : useRemote
+                  ? (query.trim() ? 'No ingredients match' : 'No suggestions')
+                  : 'No ingredients match'}
             </Text>
           )}
           renderItem={({ item }) => {

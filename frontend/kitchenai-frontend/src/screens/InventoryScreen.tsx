@@ -50,6 +50,7 @@ import { APP_TOUR_TARGET_IDS } from '../tour/appTourSteps';
 import { useTourScreenScroll } from '../hooks/useTourScreenScroll';
 import { useProductTour } from '../context/ProductTourContext';
 import { scrollFlatListToTop, getListScrollElement, useFlatListOnEndReached } from '../utils/infiniteScroll';
+import { keyboardAwareScrollViewProps } from '../utils/keyboardAvoidance';
 
 type TabValue = 'all' | 'expired';
 
@@ -968,7 +969,7 @@ export function InventoryScreen() {
               contentContainerStyle={listContentStyle}
               columnWrapperStyle={listItems.length > 0 ? styles.gridRow : undefined}
               showsVerticalScrollIndicator={false}
-              keyboardShouldPersistTaps="handled"
+              {...keyboardAwareScrollViewProps}
               scrollEnabled={listItems.length > 0 || !loading}
               onScroll={handleListScrollWeb}
               scrollEventThrottle={16}
@@ -1016,7 +1017,7 @@ export function InventoryScreen() {
               contentContainerStyle={expiredListContentStyle}
               columnWrapperStyle={listItems.length > 0 ? styles.gridRow : undefined}
               showsVerticalScrollIndicator={false}
-              keyboardShouldPersistTaps="handled"
+              {...keyboardAwareScrollViewProps}
               scrollEnabled={listItems.length > 0 || !loading}
               onScroll={handleListScrollWeb}
               scrollEventThrottle={16}

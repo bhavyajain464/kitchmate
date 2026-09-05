@@ -1,6 +1,7 @@
 import React, { useMemo } from 'react';
-import { Image, StyleSheet, View } from 'react-native';
+import { StyleSheet, View } from 'react-native';
 import { Icon } from 'react-native-paper';
+import { OptimizedImage } from './OptimizedImage';
 import { getIngredientStapleImageSource } from '../data/ingredientImages';
 
 type Props = {
@@ -23,7 +24,7 @@ export function IngredientThumb({ name, ingredientId, size = 40, resizeMode = 'c
 
   if (source) {
     return (
-      <Image
+      <OptimizedImage
         source={source}
         style={frameStyle}
         resizeMode={resizeMode}

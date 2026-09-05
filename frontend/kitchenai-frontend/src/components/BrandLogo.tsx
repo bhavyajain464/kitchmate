@@ -1,5 +1,6 @@
 import React from 'react';
-import { Image, ImageStyle, StyleProp, StyleSheet, View, ViewStyle } from 'react-native';
+import { ImageStyle, StyleProp, StyleSheet, View, ViewStyle } from 'react-native';
+import { OptimizedImage } from './OptimizedImage';
 import { brandLogo, BRAND_DISPLAY_NAME, BRAND_HEADER_BG } from '../constants/brand';
 
 type BrandLogoProps = {
@@ -23,7 +24,7 @@ export function BrandLogo({
 
   return (
     <View style={[styles.wrap, matte, { width, height }, style]}>
-      <Image
+      <OptimizedImage
         source={brandLogo}
         style={[styles.image, matte, { width, height }, imageStyle]}
         resizeMode="contain"

@@ -42,12 +42,20 @@ func newDialer(cfg *config.Config) (*kafkago.Dialer, error) {
 			rootCAs = x509.NewCertPool()
 		}
 
-		caPEM, err := os.ReadFile(cfg.KafkaCAFile)
-		if err != nil {
-			return nil, fmt.Errorf("read kafka CA file: %w", err)
+		var caPEM []byte
+		switch {
+		case strings.TrimSpace(cfg.KafkaCAPem) != "":
+			caPEM = []byte(cfg.KafkaCAPem)
+		case strings.TrimSpace(cfg.KafkaCAFile) != "":
+			caPEM, err = os.ReadFile(cfg.KafkaCAFile)
+			if err != nil {
+				return nil, fmt.Errorf("read kafka CA file: %w", err)
+			}
+		default:
+			return nil, fmt.Errorf("kafka TLS enabled but no KAFKA_CA_PEM or KAFKA_CA_FILE")
 		}
 		if ok := rootCAs.AppendCertsFromPEM(caPEM); !ok {
-			return nil, fmt.Errorf("parse kafka CA file %s", cfg.KafkaCAFile)
+			return nil, fmt.Errorf("parse kafka CA PEM")
 		}
 
 		dialer.TLS = &tls.Config{

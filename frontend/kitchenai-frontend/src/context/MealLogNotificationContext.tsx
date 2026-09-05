@@ -1,4 +1,5 @@
 import React, { useEffect, useRef } from 'react';
+import { AppState } from 'react-native';
 import { NavigationContainerRef } from '@react-navigation/native';
 import type { RootStackParamList } from '../navigation/types';
 import {
@@ -8,6 +9,11 @@ import {
   isMealLogNotificationSupported,
   syncMealLogReminders,
 } from '../services/mealLogNotifications';
+import {
+  isMainTabScreen,
+  isMarketingPushData,
+  syncPushTokenWithBackend,
+} from '../services/marketingPush';
 
 type Props = {
   navigationRef: React.RefObject<NavigationContainerRef<RootStackParamList> | null>;
@@ -20,12 +26,46 @@ export function MealLogNotificationProvider({ navigationRef, children }: Props) 
   useEffect(() => {
     if (!isMealLogNotificationSupported()) return;
 
-    void syncMealLogReminders();
+    const syncNotifications = () => {
+      void syncMealLogReminders();
+      void syncPushTokenWithBackend();
+    };
+
+    syncNotifications();
+
+    const appStateSub = AppState.addEventListener('change', (state) => {
+      if (state === 'active') syncNotifications();
+    });
 
     const openMealLog = () => {
       const nav = navigationRef.current;
       if (!nav?.isReady()) return;
       nav.navigate('MainTabs', { screen: 'Meals', params: { openLog: true } });
+    };
+
+    const openMarketingScreen = (screen: string) => {
+      const nav = navigationRef.current;
+      if (!nav?.isReady()) return;
+      if (!isMainTabScreen(screen)) {
+        nav.navigate('MainTabs', { screen: 'Home' });
+        return;
+      }
+      switch (screen) {
+        case 'Inventory':
+          nav.navigate('MainTabs', { screen: 'Inventory', params: {} });
+          break;
+        case 'Meals':
+          nav.navigate('MainTabs', { screen: 'Meals', params: {} });
+          break;
+        case 'Cook':
+          nav.navigate('MainTabs', { screen: 'Cook', params: {} });
+          break;
+        case 'Shopping':
+          nav.navigate('MainTabs', { screen: 'Shopping' });
+          break;
+        default:
+          nav.navigate('MainTabs', { screen: 'Home' });
+      }
     };
 
     const handleResponse = (response: import('expo-notifications').NotificationResponse) => {
@@ -36,6 +76,14 @@ export function MealLogNotificationProvider({ navigationRef, children }: Props) 
       const data = response.notification.request.content.data as Record<string, unknown> | undefined;
       if (isMealLogNotificationResponse(data)) {
         openMealLog();
+        return;
+      }
+      if (isMarketingPushData(data) && typeof data.screen === 'string') {
+        openMarketingScreen(data.screen);
+        return;
+      }
+      if (isMarketingPushData(data)) {
+        openMarketingScreen('Home');
       }
     };
 
@@ -55,6 +103,7 @@ export function MealLogNotificationProvider({ navigationRef, children }: Props) 
     return () => {
       cancelled = true;
       sub?.remove();
+      appStateSub.remove();
     };
   }, [navigationRef]);
 

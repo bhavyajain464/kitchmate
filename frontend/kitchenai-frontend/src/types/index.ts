@@ -387,6 +387,10 @@ export interface DietDayReportResponse {
   date: string;
   entries: CookedLogEntry[];
   report?: DietDayReport;
+  analysis_status?: 'empty' | 'pending' | 'partial' | 'ready' | 'failed' | 'legacy_only' | string;
+  pending_count?: number;
+  failed_count?: number;
+  completed_count?: number;
 }
 
 export interface CookedHistoryResponse {

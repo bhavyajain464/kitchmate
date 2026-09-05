@@ -610,6 +610,19 @@ export const DISH_NAME_TO_ID: Record<string, string> = {
   "atte ka halwa": "atte-ka-halwa",
   "lauki halwa": "lauki-halwa",
   "beetroot halwa": "beetroot-halwa",
+  "plain naan": "plain-naan",
+  "bhakri": "plain-bhakri",
+  "baati": "baati",
+  "luchi": "luchi",
+  "kachori": "kachori",
+  "mirchi ka salan": "mirchi-ka-salan",
+  "thecha": "thecha",
+  "veg manchurian": "veg-manchurian",
+  "spring rolls": "spring-rolls",
+  "kulcha": "plain-kulcha",
+  "chilli chicken": "chilli-chicken",
+  "falooda": "falooda",
+  "masala chai": "masala-chai",
 };
 
 export function resolveDishId(name?: string | null, dishId?: string | null): string | null {

@@ -14,14 +14,14 @@ export function useIngredientSearch(query: string, enabled: boolean) {
   }, [query]);
 
   useEffect(() => {
-    if (!enabled || debouncedQuery.length < 1) {
+    if (!enabled) {
       setResults([]);
       setLoading(false);
       return;
     }
     let cancelled = false;
     setLoading(true);
-    void fetchIngredientsCatalog(debouncedQuery)
+    void fetchIngredientsCatalog(debouncedQuery || undefined)
       .then((items) => {
         if (!cancelled) setResults(items ?? []);
       })

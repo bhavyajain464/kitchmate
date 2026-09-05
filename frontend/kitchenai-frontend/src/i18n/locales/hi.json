@@ -21,6 +21,10 @@
     "expiredBanner_other": "इन्वेंटरी से {{count}} चीज़ें हटाई गईं (एक्सपायर)",
     "emptyPantryTitle": "आपकी रसोई खाली है",
     "emptyPantrySub": "बिल स्कैन करें या भोजन आइडिया के लिए सामान जोड़ें",
+    "freshPantryTitle": "रसोई बढ़िया लग रही है",
+    "freshPantrySub": "{{count}} चीज़ें ट्रैक हो रही हैं — कुछ भी जल्दी खत्म नहीं होगा",
+    "freshPantrySub_one": "1 चीज़ ट्रैक हो रही है — कुछ भी जल्दी खत्म नहीं होगा",
+    "freshPantryBadge": "सब ठीक",
     "today": "आज",
     "days": "{{count}} दिन",
     "oneDay": "1 दिन"
@@ -71,6 +75,11 @@
     "help": "मदद",
     "takeTour": "टूर लें",
     "takeTourSub": "होम, सामान, भोजन, खाना और खरीदारी का वॉकथ्रू",
+    "marketingPush": "सूचनाएँ",
+    "marketingPushHint": "टिप्स, नई सुविधाएँ और अपडेट (केवल ऐप पर)।",
+    "marketingPushToggle": "उत्पाद समाचार और अपडेट",
+    "marketingPushLoadError": "सूचना सेटिंग लोड नहीं हो सकी।",
+    "marketingPushSaveError": "सूचना सेटिंग अपडेट नहीं हो सकी।",
     "signOut": "साइन आउट",
     "memories": "यादें"
   },

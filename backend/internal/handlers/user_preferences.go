@@ -6,6 +6,8 @@ import (
 	"net/http"
 
 	"kitchenai-backend/internal/models"
+
+	"github.com/lib/pq"
 )
 
 // GetUserPreferences returns user preferences
@@ -18,15 +20,20 @@ func GetUserPreferences(db *sql.DB) http.HandlerFunc {
 		}
 
 		var prefs models.UserPreferences
+		var dislikes, dietaryTags, favCuisines pq.StringArray
 		err := db.QueryRow(`
-			SELECT user_id, dislikes, dietary_tags, fav_cuisines, created_at, updated_at
+			SELECT user_id,
+				COALESCE(dislikes, '{}'),
+				COALESCE(dietary_tags, '{}'),
+				COALESCE(fav_cuisines, '{}'),
+				created_at, updated_at
 			FROM user_prefs
 			WHERE user_id = $1
 		`, userID).Scan(
 			&prefs.UserID,
-			&prefs.Dislikes,
-			&prefs.DietaryTags,
-			&prefs.FavCuisines,
+			&dislikes,
+			&dietaryTags,
+			&favCuisines,
 			&prefs.CreatedAt,
 			&prefs.UpdatedAt,
 		)
@@ -42,6 +49,20 @@ func GetUserPreferences(db *sql.DB) http.HandlerFunc {
 		} else if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
+		} else {
+			prefs.Dislikes = []string(dislikes)
+			prefs.DietaryTags = []string(dietaryTags)
+			prefs.FavCuisines = []string(favCuisines)
+		}
+
+		if prefs.Dislikes == nil {
+			prefs.Dislikes = []string{}
+		}
+		if prefs.DietaryTags == nil {
+			prefs.DietaryTags = []string{}
+		}
+		if prefs.FavCuisines == nil {
+			prefs.FavCuisines = []string{}
 		}
 
 		w.Header().Set("Content-Type", "application/json")
@@ -78,7 +99,7 @@ func UpdateUserPreferences(db *sql.DB) http.HandlerFunc {
 				UPDATE user_prefs
 				SET dislikes = $1, dietary_tags = $2, fav_cuisines = $3
 				WHERE user_id = $4
-			`, req.Dislikes, req.DietaryTags, req.FavCuisines, userID)
+			`, pq.Array(req.Dislikes), pq.Array(req.DietaryTags), pq.Array(req.FavCuisines), userID)
 			if err != nil {
 				http.Error(w, err.Error(), http.StatusInternalServerError)
 				return
@@ -88,7 +109,7 @@ func UpdateUserPreferences(db *sql.DB) http.HandlerFunc {
 			_, err := db.Exec(`
 				INSERT INTO user_prefs (user_id, dislikes, dietary_tags, fav_cuisines)
 				VALUES ($1, $2, $3, $4)
-			`, userID, req.Dislikes, req.DietaryTags, req.FavCuisines)
+			`, userID, pq.Array(req.Dislikes), pq.Array(req.DietaryTags), pq.Array(req.FavCuisines))
 			if err != nil {
 				http.Error(w, err.Error(), http.StatusInternalServerError)
 				return

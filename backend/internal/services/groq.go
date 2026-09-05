@@ -25,12 +25,12 @@ var mealCatalogKnowledge string
 const (
 	groqMaxTokensDefault      = 2048
 	groqMaxTokensMeals        = 2400 // 3 meals JSON; 1400 caused truncation → silent fallback in UI
-	groqMaxTokensNLU          = 220
+	groqMaxTokensNLU          = 512 // buddy reply + actions JSON; 220 truncated mid-object
 	groqMaxTokensShelfLife    = 512
-	groqMaxTokensBillScan     = 1800
+	groqMaxTokensBillScan     = 500 // compact tuples; free-tier qwen OTPM ≈ 1000
 	groqMaxTokensOrderSuggest = 720
 
-	nluSystemPrompt = "Classify Indian kitchen WhatsApp. One JSON object only, no markdown."
+	nluSystemPrompt = "Classify Indian kitchen WhatsApp. Return one compact JSON object only, no markdown. Keep reply short."
 )
 
 var shelfLifeObjectPattern = regexp.MustCompile(`\{[^{}]*"name"\s*:\s*"[^"]+"[^{}]*"shelf_life_days"\s*:\s*-?\d+[^{}]*\}`)
@@ -38,12 +38,13 @@ var shelfLifeObjectPattern = regexp.MustCompile(`\{[^{}]*"name"\s*:\s*"[^"]+"[^{
 const groqChatURL = "https://api.groq.com/openai/v1/chat/completions"
 
 type groqChatRequest struct {
-	Model       string        `json:"model"`
-	Messages    []groqMessage `json:"messages"`
-	Temperature float64       `json:"temperature"`
-	MaxTokens   int           `json:"max_tokens,omitempty"`
-	TopP        *float64      `json:"top_p,omitempty"`
-	Seed        *int64        `json:"seed,omitempty"`
+	Model            string        `json:"model"`
+	Messages         []groqMessage `json:"messages"`
+	Temperature      float64       `json:"temperature"`
+	MaxTokens        int           `json:"max_tokens,omitempty"`
+	TopP             *float64      `json:"top_p,omitempty"`
+	Seed             *int64        `json:"seed,omitempty"`
+	ReasoningEffort  string        `json:"reasoning_effort,omitempty"` // qwen: "none"|"default"; gpt-oss: low|medium|high
 }
 
 type groqMessage struct {
@@ -84,7 +85,30 @@ func groqChat(ctx context.Context, apiKey, model string, temperature float64, ma
 	return groqChatWithSampling(ctx, apiKey, model, temperature, nil, nil, maxTokens, messages, true)
 }
 
+// groqChatBillExtract runs bill OCR text parsing without system knowledge.
+// Reasoning effort is forced to "none" for Qwen (see groqReasoningEffort).
+func groqChatBillExtract(ctx context.Context, apiKey, model string, maxTokens int, messages []groqMessage) (string, error) {
+	return groqDoChat(ctx, apiKey, model, 0.1, nil, nil, maxTokens, messages, false, "none")
+}
+
 func groqChatWithSampling(ctx context.Context, apiKey, model string, temperature float64, topP *float64, seed *int64, maxTokens int, messages []groqMessage, includeSystemKnowledge bool) (string, error) {
+	return groqDoChat(ctx, apiKey, model, temperature, topP, seed, maxTokens, messages, includeSystemKnowledge, "")
+}
+
+// groqReasoningEffort picks a safe reasoning_effort for the model.
+// Qwen defaults to "none" so max_tokens is not consumed by <think> blocks.
+// Explicit requested values win; gpt-oss and others omit the field unless set.
+func groqReasoningEffort(model, requested string) string {
+	if v := strings.TrimSpace(requested); v != "" {
+		return v
+	}
+	if strings.Contains(strings.ToLower(model), "qwen") {
+		return "none"
+	}
+	return ""
+}
+
+func groqDoChat(ctx context.Context, apiKey, model string, temperature float64, topP *float64, seed *int64, maxTokens int, messages []groqMessage, includeSystemKnowledge bool, reasoningEffort string) (string, error) {
 	if strings.TrimSpace(apiKey) == "" {
 		return "", fmt.Errorf("groq API key is empty")
 	}
@@ -100,12 +124,13 @@ func groqChatWithSampling(ctx context.Context, apiKey, model string, temperature
 		msgs = withSystemPrompt(messages)
 	}
 	body, err := json.Marshal(groqChatRequest{
-		Model:       model,
-		Messages:    msgs,
-		Temperature: temperature,
-		MaxTokens:   maxTokens,
-		TopP:        topP,
-		Seed:        seed,
+		Model:           model,
+		Messages:        msgs,
+		Temperature:     temperature,
+		MaxTokens:       maxTokens,
+		TopP:            topP,
+		Seed:            seed,
+		ReasoningEffort: groqReasoningEffort(model, reasoningEffort),
 	})
 	if err != nil {
 		return "", err
@@ -296,21 +321,8 @@ func salvageShelfLifeObjects(s string) []ShelfLifeEstimate {
 }
 
 var (
-	billScanGroqTextPrompt = `You are reading plain text from an Indian grocery invoice (Swiggy Instamart, Blinkit, Zepto, BigBasket, or a store receipt).
-
-Extract ONLY edible/kitchen items. EXCLUDE: handling fees, delivery charges, bags, discounts summary rows, tax annexures, and any non-food product.
-
-Rules:
-- name: simple grocery ingredient only (e.g. "Jeera", "Tomato") — strip brand/pack size from product descriptions.
-- quantity: numeric quantity sold (often 1 on delivery apps).
-- unit: use pcs for count/NOS items; use kg, g, L, ml when visible in the name or UQC.
-- total_price: line item total in rupees (last amount column for that row); 0 if unclear.
-- price_per_unit: 0 if unknown.
-- shelf_life_days: reasonable estimate for Indian home storage.
-` + billScanFoodGroupField() + `
-
-Return ONLY a JSON array, no markdown:
-[{"name":"Potato","quantity":1,"unit":"kg","price_per_unit":0,"total_price":26,"shelf_life_days":14,"food_group":"vegetables"}]`
+	// Deprecated verbose prompt kept only if referenced; Groq text path uses billScanCompactTextPrompt.
+	billScanGroqTextPrompt = billScanCompactTextPrompt
 )
 
 func ScanBillGroqFromPDF(ctx context.Context, cfg *config.Config, pdfData []byte) ([]BillItem, error) {

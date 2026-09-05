@@ -273,7 +273,7 @@ Week 2 focuses on **multimodal bill scanning** and related parsing, routed throu
    - Base64 image decoding
    - MIME type detection and validation
    - Gemini Vision API integration with optimized prompts for Indian grocery bills
-   - JSON response parsing with fallback to mock data
+   - JSON response parsing for bill line items
 
 ### 🛠️ Technical Details
 

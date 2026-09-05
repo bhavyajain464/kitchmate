@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
-import { StyleSheet, View, ScrollView, Image, Platform } from 'react-native';
+import { StyleSheet, View, ScrollView, Platform } from 'react-native';
+import { OptimizedImage } from '../components/OptimizedImage';
 import { Text, Button, Card, Surface, ActivityIndicator, Icon } from 'react-native-paper';
 import { BillCameraModal } from '../components/BillCameraModal';
 import * as api from '../services/api';
@@ -111,7 +112,7 @@ export function ScanScreen() {
                   </Text>
                 </View>
               ) : (
-                <Image source={{ uri: billPick.uri }} style={styles.image} resizeMode="contain" />
+                <OptimizedImage source={{ uri: billPick.uri }} style={styles.image} resizeMode="contain" />
               )}
               <Button
                 mode="text"
