@@ -102,7 +102,12 @@ jobs:
           ]
           missing = [k for k in required if not os.environ.get(k)]
           if missing:
-              print("Missing GitHub secrets:", ", ".join(missing), file=sys.stderr)
+              print("Missing GitHub Environment secrets:", ", ".join(missing), file=sys.stderr)
+              print(
+                  "Upload with: cd backend && KAFKA_CA_PEM_FILE=/path/to/ca.pem "
+                  "./scripts/upload_secrets_github.sh staging",
+                  file=sys.stderr,
+              )
               sys.exit(1)
 
           static = {

@@ -91,7 +91,21 @@ DOTENV_CONFIG_PATH=staging.env npm run web
 
 - Redis, Kafka, Groq/Gemini keys, Google OAuth clients (with extra redirect URI for develop preview)
 
-**Staging database:** `rasoibuddy-staging` on the same Oracle Cloud Postgres host as production (`kitch-mate`). Set `DATABASE_URL` on the GitHub Environment **staging** (deploy workflow injects it into Cloud Run).
+**Staging database:** `rasoibuddy-staging` on the same Oracle Cloud Postgres host as production (`kitch-mate`). Cloud Run staging reads **all secrets from the GitHub Environment `staging`** (not GCP Secret Manager).
+
+Upload or refresh them from `backend/.env` (plus Kafka CA PEM):
+
+```bash
+# one-time: ensure gh can call api.github.com
+gh auth refresh -h github.com -s repo,workflow
+
+cd backend
+KAFKA_CA_PEM_FILE=~/Downloads/ca.pem ./scripts/upload_secrets_github.sh staging
+# when ready for prod (use a production DATABASE_URL in .env first):
+# KAFKA_CA_PEM_FILE=~/Downloads/ca.pem ./scripts/upload_secrets_github.sh production
+```
+
+Required Environment secrets: `DATABASE_URL`, `GEMINI_API_KEY`, `GOOGLE_VISION_API_KEY`, `GROQ_API_KEY`, `SESSION_TOKEN_SECRET`, `REDIS_URL`, `KAFKA_PASSWORD`, `KAFKA_CA_PEM`, Razorpay staging keys, `SMTP_PASS`.
 
 To refresh staging data from production:
 
