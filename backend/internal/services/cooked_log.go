@@ -72,12 +72,22 @@ type LogCookedDishInput struct {
 
 // CookedLogService persists all cooked dishes and caches the last 15 days per user.
 type CookedLogService struct {
-	db    *sql.DB
-	redis *redis.Client
+	db            *sql.DB
+	redis         *redis.Client
+	dietPublisher DietAnalysisPublisher
+	nutrition     *MealNutritionService
 }
 
 func NewCookedLogService(db *sql.DB, r *redis.Client) *CookedLogService {
-	return &CookedLogService{db: db, redis: r}
+	return &CookedLogService{db: db, redis: r, nutrition: NewMealNutritionService(db)}
+}
+
+// SetDietAnalysisPublisher wires async per-meal nutrition triggers (optional).
+func (s *CookedLogService) SetDietAnalysisPublisher(p DietAnalysisPublisher) {
+	if s == nil {
+		return
+	}
+	s.dietPublisher = p
 }
 
 func (s *CookedLogService) Log(ctx context.Context, userID string, in LogCookedDishInput) (*CookedLogEntry, error) {
@@ -137,7 +147,22 @@ func (s *CookedLogService) Log(ctx context.Context, userID string, in LogCookedD
 	if err := s.refreshCache(ctx, userID); err != nil {
 		log.Printf("[cooked_log] cache refresh failed user=%s: %v", userID, err)
 	}
+	s.enqueueDietAnalysis(ctx, entry.ID, userID, entry.Source)
 	return entry, nil
+}
+
+func (s *CookedLogService) enqueueDietAnalysis(ctx context.Context, cookedLogID, userID, source string) {
+	if s == nil || !IsEatenLogSource(source) {
+		return
+	}
+	if s.nutrition != nil {
+		if err := s.nutrition.EnqueuePending(ctx, cookedLogID, userID); err != nil {
+			log.Printf("[cooked_log] nutrition enqueue cooked_log=%s: %v", cookedLogID, err)
+		}
+	}
+	if s.dietPublisher != nil {
+		s.dietPublisher.PublishDietAnalysis(cookedLogID, userID)
+	}
 }
 
 func (s *CookedLogService) ListLast15Days(ctx context.Context, userID string) ([]CookedLogEntry, bool, error) {

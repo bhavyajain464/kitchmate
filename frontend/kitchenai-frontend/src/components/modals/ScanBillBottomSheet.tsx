@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import { Image, Platform, StyleSheet, View } from 'react-native';
+import { Platform, StyleSheet, View } from 'react-native';
+import { OptimizedImage } from '../OptimizedImage';
 import {
   ActivityIndicator,
   Button,
@@ -285,7 +286,7 @@ export function ScanBillBottomSheet({ visible, onDismiss, onAdded, groupMeta }: 
                     </Text>
                   </View>
                 ) : (
-                  <Image source={{ uri: billPick.uri }} style={styles.image} resizeMode="contain" />
+                  <OptimizedImage source={{ uri: billPick.uri }} style={styles.image} resizeMode="contain" />
                 )}
                 <Button
                   mode="text"

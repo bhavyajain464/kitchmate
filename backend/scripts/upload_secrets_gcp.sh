@@ -1,4 +1,7 @@
 #!/usr/bin/env bash
+# DEPRECATED: Cloud Run deploys now inject secrets from GitHub Environments
+# (production / staging), not GCP Secret Manager. Prefer setting those in
+# GitHub → Settings → Environments. Kept only for one-off GCP secret recovery.
 # Upload backend secrets from backend/.env to GCP Secret Manager (never commit .env).
 set -euo pipefail
 

@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Platform, ActivityIndicator, View, StyleSheet } from 'react-native';
+import { Platform, ActivityIndicator, View, StyleSheet, StatusBar as RNStatusBar } from 'react-native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { PaperProvider } from 'react-native-paper';
 import { SafeAreaProvider, initialWindowMetrics } from 'react-native-safe-area-context';
@@ -10,7 +10,6 @@ import { AppFeedbackProvider } from './src/context/AppFeedbackContext';
 import { PaymentCheckoutProvider } from './src/context/PaymentCheckoutContext';
 import { LocaleProvider } from './src/context/LocaleContext';
 import { AppNavigator } from './src/navigation/AppNavigator';
-import { usePhonePortraitOrientation } from './src/hooks/usePhonePortraitOrientation';
 import { theme } from './src/theme';
 import { Analytics } from '@vercel/analytics/react';
 import { SpeedInsights } from '@vercel/speed-insights/react';
@@ -25,12 +24,15 @@ function AppBootScreen() {
 }
 
 function AppTree() {
-  usePhonePortraitOrientation();
+  useEffect(() => {
+    if (Platform.OS !== 'android') return;
+    RNStatusBar.setBarStyle('dark-content');
+  }, []);
 
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
       <SafeAreaProvider initialMetrics={initialWindowMetrics}>
-        <StatusBar style="dark" />
+        {Platform.OS === 'ios' ? <StatusBar style="dark" /> : null}
         <PaperProvider theme={theme}>
           <AppFeedbackProvider>
             <PaymentCheckoutProvider>

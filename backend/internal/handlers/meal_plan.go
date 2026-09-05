@@ -938,7 +938,11 @@ func PostRefreshWeekPlan(
 		)
 		if err != nil {
 			log.Printf("[meal-plan] refresh kitchen=%s date=%s slot=%s: %v", kitchen.KitchenID, req.Date, req.MealSlot, err)
-			w.WriteHeader(http.StatusInternalServerError)
+			status := http.StatusInternalServerError
+			if strings.Contains(err.Error(), "not found") || strings.Contains(err.Error(), "invalid") || strings.Contains(err.Error(), "required") {
+				status = http.StatusBadRequest
+			}
+			w.WriteHeader(status)
 			json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
 			return
 		}

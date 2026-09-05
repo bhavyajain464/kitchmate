@@ -411,7 +411,7 @@ export function ProductTourProvider({ children, paywallVisible }: ProductTourPro
     setDynamicStepBodies((prev) => {
       const body = hasExpiryAlerts
         ? 'Expired and expiring items show up here — tap to reorder or use them before they go bad.'
-        : 'Your pantry summary lives here. Add items or scan a bill from Inventory.';
+        : 'When nothing is expiring, a green “all clear” card shows here. Alerts appear when items need attention.';
       if (prev.expiry === body) return prev;
       return { ...prev, expiry: body };
     });

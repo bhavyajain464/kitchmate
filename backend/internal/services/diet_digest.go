@@ -26,25 +26,35 @@ type DietAnalysisSettings struct {
 	DeliverySummary string `json:"delivery_summary"`
 }
 
+// DietDayReportResponse is the in-app diet analysis payload for one calendar day.
+type DietDayReportResponse struct {
+	Date           string           `json:"date"`
+	Entries        []CookedLogEntry `json:"entries"`
+	Report         *DietDayReport   `json:"report,omitempty"`
+	AnalysisStatus string           `json:"analysis_status,omitempty"`
+	PendingCount   int              `json:"pending_count,omitempty"`
+	FailedCount    int              `json:"failed_count,omitempty"`
+	CompletedCount int              `json:"completed_count,omitempty"`
+}
+
 // DietDigestService sends weekly meal summaries by email.
 type DietDigestService struct {
 	db         *sql.DB
 	cookedLog  *CookedLogService
+	nutrition  *MealNutritionService
 	cfg        *config.Config
 }
 
 func NewDietDigestService(db *sql.DB, cooked *CookedLogService, cfg *config.Config) *DietDigestService {
-	return &DietDigestService{db: db, cookedLog: cooked, cfg: cfg}
+	return &DietDigestService{
+		db:        db,
+		cookedLog: cooked,
+		nutrition: NewMealNutritionService(db),
+		cfg:       cfg,
+	}
 }
 
-// DietDayReportResponse is the in-app diet analysis payload for one calendar day.
-type DietDayReportResponse struct {
-	Date    string            `json:"date"`
-	Entries []CookedLogEntry  `json:"entries"`
-	Report  *DietDayReport    `json:"report,omitempty"`
-}
-
-// BuildDayReport generates AI nutrition analysis for logged meals on dateISO (YYYY-MM-DD).
+// BuildDayReport aggregates stored per-meal nutrition for logged meals on dateISO (YYYY-MM-DD).
 func (s *DietDigestService) BuildDayReport(ctx context.Context, userID, dateISO string) (*DietDayReportResponse, error) {
 	userID = strings.TrimSpace(userID)
 	dateISO = strings.TrimSpace(dateISO)
@@ -69,17 +79,20 @@ func (s *DietDigestService) BuildDayReport(ctx context.Context, userID, dateISO 
 	}
 	resp := &DietDayReportResponse{Date: dateISO, Entries: entries}
 	if len(entries) == 0 {
+		resp.AnalysisStatus = AnalysisStatusEmpty
 		return resp, nil
 	}
 
-	var displayName string
-	_ = s.db.QueryRowContext(ctx, `SELECT COALESCE(NULLIF(TRIM(name), ''), '') FROM users WHERE user_id = $1`, userID).Scan(&displayName)
-	prefs, _ := LoadUserPrefs(s.db, userID)
-	report, err := GroqDietDayReport(ctx, s.cfg, dateISO, entries, prefs, displayName)
+	records, err := s.nutrition.ListForDateRange(ctx, userID, dateISO, dateISO)
 	if err != nil {
 		return nil, err
 	}
+	report, status, pending, failed, completed, _ := AggregateMealNutrition(dateISO, records, 1)
 	resp.Report = report
+	resp.AnalysisStatus = status
+	resp.PendingCount = pending
+	resp.FailedCount = failed
+	resp.CompletedCount = completed
 	return resp, nil
 }
 
@@ -483,18 +496,22 @@ func (s *DietDigestService) SendWeeklyDigestForUser(ctx context.Context, userID,
 	var report *DietDayReport
 	var pdf []byte
 	if len(entries) > 0 {
-		var displayName string
-		_ = s.db.QueryRowContext(ctx, `SELECT COALESCE(NULLIF(TRIM(name), ''), '') FROM users WHERE user_id = $1`, userID).Scan(&displayName)
-		prefs, _ := LoadUserPrefs(s.db, userID)
-		report, err = GroqDietWeekReport(ctx, s.cfg, startISO, endISO, entries, prefs, displayName)
+		records, err := s.nutrition.ListForDateRange(ctx, userID, startISO, endISO)
 		if err != nil {
-			return fmt.Errorf("diet analysis: %w", err)
+			return err
 		}
-		pdf, err = BuildDietReportPDF(report)
-		if err != nil {
-			return fmt.Errorf("diet report PDF: %w", err)
+		label := startISO + " to " + endISO
+		var status string
+		report, status, _, _, _, _ = AggregateMealNutrition(label, records, 7)
+		if report == nil {
+			log.Printf("[diet-digest] no completed nutrition yet user=%s week=%s..%s status=%s", userID, startISO, endISO, status)
+		} else {
+			pdf, err = BuildDietReportPDF(report)
+			if err != nil {
+				return fmt.Errorf("diet report PDF: %w", err)
+			}
+			log.Printf("[diet-digest] generated weekly PDF user=%s week=%s..%s bytes=%d", userID, startISO, endISO, len(pdf))
 		}
-		log.Printf("[diet-digest] generated weekly PDF user=%s week=%s..%s bytes=%d", userID, startISO, endISO, len(pdf))
 	}
 
 	subject, plain, html := s.BuildDigestBody(startISO, endISO, entries, report)

@@ -211,10 +211,10 @@ func (s *ProcurementService) GenerateShoppingList(req ShoppingListRequest) (*Sho
 func (s *ProcurementService) getExpiringItemsForReplacement(days int) ([]models.ExpiringItem, error) {
 	query := `
 		SELECT item_id, canonical_name, qty, unit, estimated_expiry,
-		       DATE_PART('day', estimated_expiry - CURRENT_DATE)::int as days_until_expiry
+		       (estimated_expiry - CURRENT_DATE)::int as days_until_expiry
 		FROM inventory
 		WHERE estimated_expiry IS NOT NULL 
-		  AND estimated_expiry <= CURRENT_DATE + INTERVAL '1 day' * $1
+		  AND estimated_expiry <= CURRENT_DATE + ($1::int * INTERVAL '1 day')
 		ORDER BY estimated_expiry
 	`
 

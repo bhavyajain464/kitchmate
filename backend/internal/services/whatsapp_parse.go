@@ -44,6 +44,10 @@ type WhatsAppEntities struct {
 
 var whatsappObjectPattern = regexp.MustCompile(`\{[^{}]*"intent"\s*:\s*"[^"]+"[^{}]*\}`)
 var whatsappActionsArrayPattern = regexp.MustCompile(`"actions"\s*:\s*\[[\s\S]*?\]`)
+var whatsappReplyFieldPattern = regexp.MustCompile(`"reply"\s*:\s*"((?:\\.|[^"\\])*)"`)
+var whatsappIntentFieldPattern = regexp.MustCompile(`"intent"\s*:\s*"([^"]+)"`)
+var whatsappItemNameFieldPattern = regexp.MustCompile(`"item_name"\s*:\s*"([^"]+)"`)
+var buddyReplyItemPattern = regexp.MustCompile(`(?i)add(?:ing)?\s+([a-zA-Z][a-zA-Z0-9-]*)\s*(?:\(|\.|,|to your|$)`)
 
 const maxWhatsAppMessageLen = 2000
 const maxWhatsAppActionsPerMessage = 8
@@ -204,7 +208,13 @@ func defaultBuddyReply(actions []*WhatsAppParsedAction) string {
 	return fmt.Sprintf("I found %d updates — confirm when this looks right.", appliable)
 }
 
-func parseWhatsAppChatJSON(responseText string) (string, []*WhatsAppParsedAction, error) {
+func parseWhatsAppChatJSON(responseText string) (reply string, actions []*WhatsAppParsedAction, err error) {
+	defer func() {
+		if err == nil {
+			enrichWhatsAppActionsFromReply(reply, actions)
+		}
+	}()
+
 	cleaned := cleanJSONFence(responseText)
 
 	var payload struct {
@@ -222,12 +232,101 @@ func parseWhatsAppChatJSON(responseText string) (string, []*WhatsAppParsedAction
 		}
 	}
 
-	// Legacy: actions-only payload.
-	actions, err := parseWhatsAppActionsJSON(responseText)
-	if err != nil {
-		return "", nil, err
+	if reply, actions, ok := salvageWhatsAppChatJSON(cleaned); ok {
+		return reply, actions, nil
 	}
-	return "", actions, nil
+
+	// Legacy: actions-only payload.
+	legacyActions, legacyErr := parseWhatsAppActionsJSON(responseText)
+	if legacyErr != nil {
+		return "", nil, legacyErr
+	}
+	return "", legacyActions, nil
+}
+
+// salvageWhatsAppChatJSON repairs Groq replies cut off by max_tokens (reply present, actions incomplete).
+func salvageWhatsAppChatJSON(cleaned string) (string, []*WhatsAppParsedAction, bool) {
+	reply := extractWhatsAppReplyField(cleaned)
+
+	start := strings.Index(cleaned, "{")
+	if start == -1 {
+		if reply != "" {
+			return reply, nil, true
+		}
+		return "", nil, false
+	}
+	fragment := cleaned[start:]
+
+	suffixes := []string{
+		`"}]}`,
+		`"confidence":0.85,"summary":"","entities":{}}]}`,
+		`"confidence":0.85,"summary":"task","entities":{"item_name":"","qty":1,"unit":"pcs"}}]}`,
+	}
+	for _, suf := range suffixes {
+		var payload struct {
+			Reply   string                 `json:"reply"`
+			Actions []WhatsAppParsedAction `json:"actions"`
+		}
+		if err := json.Unmarshal([]byte(fragment+suf), &payload); err == nil {
+			actions := actionsFromSlice(payload.Actions)
+			outReply := strings.TrimSpace(payload.Reply)
+			if outReply == "" {
+				outReply = reply
+			}
+			if outReply != "" || len(actions) > 0 {
+				return outReply, actions, true
+			}
+		}
+	}
+
+	if reply != "" {
+		if m := whatsappIntentFieldPattern.FindStringSubmatch(fragment); len(m) > 1 {
+			action := &WhatsAppParsedAction{
+				Intent:     WhatsAppParseIntent(m[1]),
+				Confidence: 0.8,
+				Summary:    "Task from voice message",
+			}
+			if im := whatsappItemNameFieldPattern.FindStringSubmatch(fragment); len(im) > 1 {
+				action.Entities.ItemName = im[1]
+			}
+			return reply, []*WhatsAppParsedAction{action}, true
+		}
+		return reply, nil, true
+	}
+
+	return "", nil, false
+}
+
+func extractWhatsAppReplyField(cleaned string) string {
+	m := whatsappReplyFieldPattern.FindStringSubmatch(cleaned)
+	if len(m) < 2 {
+		return ""
+	}
+	var reply string
+	if err := json.Unmarshal([]byte(`"`+m[1]+`"`), &reply); err != nil {
+		return ""
+	}
+	return strings.TrimSpace(reply)
+}
+
+func inferItemNameFromBuddyReply(reply string) string {
+	reply = strings.TrimSpace(reply)
+	if reply == "" {
+		return ""
+	}
+	if m := buddyReplyItemPattern.FindStringSubmatch(reply); len(m) > 1 {
+		return strings.TrimSpace(m[1])
+	}
+	return ""
+}
+
+func enrichWhatsAppActionsFromReply(reply string, actions []*WhatsAppParsedAction) {
+	for _, action := range actions {
+		if action == nil || strings.TrimSpace(action.Entities.ItemName) != "" {
+			continue
+		}
+		action.Entities.ItemName = inferItemNameFromBuddyReply(reply)
+	}
 }
 
 func parseWhatsAppActionsJSON(responseText string) ([]*WhatsAppParsedAction, error) {

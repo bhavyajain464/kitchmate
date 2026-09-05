@@ -14,6 +14,7 @@ import { BottomSheet, bottomSheetPrimaryBtn } from '../BottomSheet';
 import { showAppError, showAppSuccess } from '../../utils/alertMessage';
 import { useAppRefresh } from '../../context/AppRefreshContext';
 import { palette } from '../../theme';
+import type { ItemCatalog } from '../../types';
 
 type DraftRow = {
   key: string;
@@ -21,6 +22,7 @@ type DraftRow = {
   qty: string;
   unit: string;
   ingredientId?: string;
+  catalog?: ItemCatalog;
 };
 
 let draftRowCounter = 0;
@@ -48,6 +50,7 @@ function toEditorRow(row: DraftRow): InventoryDraftRow {
     unit: row.unit,
     expiry: '',
     ingredientId: row.ingredientId,
+    catalog: row.catalog,
   };
 }
 

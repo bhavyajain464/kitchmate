@@ -1,5 +1,11 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Platform } from 'react-native';
+import {
+  NativeEventEmitter,
+  NativeModules,
+  PermissionsAndroid,
+  Platform,
+  TurboModuleRegistry,
+} from 'react-native';
 
 type SpeechRecognitionCtor = new () => {
   lang: string;
@@ -23,10 +29,68 @@ type UseVoiceInputOptions = {
   lang?: string;
 };
 
+type SpeechResultsPayload = { value?: string[] };
+type SpeechErrorPayload = { error?: { code?: string; message?: string } };
+
 function formatDuration(totalSec: number): string {
   const m = Math.floor(totalSec / 60);
   const s = totalSec % 60;
   return `${m}:${s.toString().padStart(2, '0')}`;
+}
+
+export function speechLocaleFromAppLang(language: string): string {
+  const base = language.split('-')[0].toLowerCase();
+  if (base === 'hi') return 'hi-IN';
+  if (base === 'kn') return 'kn-IN';
+  return 'en-IN';
+}
+
+function speechErrorCode(event: SpeechErrorPayload): string {
+  const raw = String(event.error?.code ?? event.error?.message ?? '');
+  const slash = raw.split('/')[0]?.trim();
+  if (/^\d+$/.test(slash)) return slash;
+  const match = raw.match(/^(\d+)\//);
+  return match?.[1] ?? '';
+}
+
+async function ensureMicPermission(): Promise<boolean> {
+  if (Platform.OS !== 'android') return true;
+  const perm = PermissionsAndroid.PERMISSIONS.RECORD_AUDIO;
+  if (await PermissionsAndroid.check(perm)) return true;
+  const result = await PermissionsAndroid.request(perm, {
+    title: 'Microphone access',
+    message: 'Rasoi Buddy needs the microphone so AI Buddy can hear you.',
+    buttonPositive: 'Allow',
+    buttonNegative: 'Deny',
+  });
+  if (result === PermissionsAndroid.RESULTS.GRANTED) return true;
+  return PermissionsAndroid.check(perm);
+}
+
+function voiceStartErrorMessage(err: unknown): string {
+  const raw = err instanceof Error ? err.message : String(err ?? '');
+  const lower = raw.toLowerCase();
+  if (
+    lower.includes('permission') ||
+    lower.includes('insufficient') ||
+    lower.includes('not authorized')
+  ) {
+    return 'Microphone permission is required for voice. Enable it in Settings → Apps → Rasoi Buddy → Permissions.';
+  }
+  if (lower.includes('recognition') || lower.includes('recognizer') || lower.includes('service')) {
+    return 'Speech recognition is not available on this device. Install or update the Google app, then try again.';
+  }
+  if (raw.trim()) return `Voice input failed: ${raw.trim()}`;
+  return 'Could not start voice input. Try again.';
+}
+
+function getVoiceNativeModule(): { addListener: (eventType: string) => void; removeListeners: (count: number) => void } | null {
+  if (Platform.OS === 'web') return null;
+  return (
+    (TurboModuleRegistry.get('Voice') as { addListener: (eventType: string) => void; removeListeners: (count: number) => void } | null) ??
+    (NativeModules.Voice as { addListener: (eventType: string) => void; removeListeners: (count: number) => void } | null) ??
+    null
+  );
 }
 
 export function useVoiceInput({ onResult, lang = 'en-IN' }: UseVoiceInputOptions) {
@@ -44,7 +108,7 @@ export function useVoiceInput({ onResult, lang = 'en-IN' }: UseVoiceInputOptions
 
   const webRecognitionRef = useRef<InstanceType<SpeechRecognitionCtor> | null>(null);
   const nativeVoiceRef = useRef<{
-    start: (locale: string) => Promise<unknown>;
+    start: (locale: string, options?: Record<string, unknown>) => Promise<unknown>;
     stop: () => Promise<unknown>;
     destroy: () => Promise<unknown>;
     cancel?: () => Promise<unknown>;
@@ -56,6 +120,7 @@ export function useVoiceInput({ onResult, lang = 'en-IN' }: UseVoiceInputOptions
   const listeningRef = useRef(false);
   const speechEpochRef = useRef(0);
   const stoppedEpochRef = useRef(0);
+  const flushWaitRef = useRef<(() => void) | null>(null);
 
   const clearTimer = useCallback(() => {
     if (timerRef.current) {
@@ -84,16 +149,21 @@ export function useVoiceInput({ onResult, lang = 'en-IN' }: UseVoiceInputOptions
     setIsRecording(false);
   }, [clearTimer]);
 
-  const stopEngine = useCallback(() => {
-    stoppedEpochRef.current = speechEpochRef.current;
-    if (Platform.OS === 'web') {
-      webRecognitionRef.current?.stop();
-      webRecognitionRef.current = null;
-    } else {
-      void nativeVoiceRef.current?.stop?.();
-    }
-    listeningRef.current = false;
-    setListening(false);
+  const notifyFlushWaiters = useCallback(() => {
+    flushWaitRef.current?.();
+    flushWaitRef.current = null;
+  }, []);
+
+  const waitForRecognizerFlush = useCallback((timeoutMs = 900) => {
+    return new Promise<void>((resolve) => {
+      const done = () => {
+        clearTimeout(timer);
+        flushWaitRef.current = null;
+        resolve();
+      };
+      const timer = setTimeout(done, timeoutMs);
+      flushWaitRef.current = done;
+    });
   }, []);
 
   const appendTranscript = useCallback((chunk: string) => {
@@ -106,7 +176,30 @@ export function useVoiceInput({ onResult, lang = 'en-IN' }: UseVoiceInputOptions
     partialRef.current = '';
     setTranscript(next);
     setPartialTranscript('');
-  }, []);
+    notifyFlushWaiters();
+  }, [notifyFlushWaiters]);
+
+  const stopEngine = useCallback(async () => {
+    stoppedEpochRef.current = speechEpochRef.current;
+    if (Platform.OS === 'web') {
+      webRecognitionRef.current?.stop();
+      webRecognitionRef.current = null;
+      listeningRef.current = false;
+      setListening(false);
+      return;
+    }
+
+    if (!listeningRef.current) return;
+
+    try {
+      await nativeVoiceRef.current?.stop?.();
+    } catch {
+      // ignore stop errors; results may still arrive
+    }
+    listeningRef.current = false;
+    setListening(false);
+    await waitForRecognizerFlush();
+  }, [waitForRecognizerFlush]);
 
   useEffect(() => {
     if (Platform.OS === 'web') {
@@ -119,42 +212,78 @@ export function useVoiceInput({ onResult, lang = 'en-IN' }: UseVoiceInputOptions
     }
 
     let mounted = true;
+    const nativeModule = getVoiceNativeModule();
+    const emitter = nativeModule ? new NativeEventEmitter(nativeModule) : null;
+
+    const handleResults = (event: SpeechResultsPayload) => {
+      const chunk = event.value?.[0]?.trim();
+      if (chunk) appendTranscript(chunk);
+    };
+
+    const handlePartialResults = (event: SpeechResultsPayload) => {
+      const chunk = event.value?.[0]?.trim() ?? '';
+      partialRef.current = chunk;
+      setPartialTranscript(chunk);
+      if (chunk) notifyFlushWaiters();
+    };
+
+    const handleSpeechError = (event: SpeechErrorPayload) => {
+      if (!listeningRef.current && speechEpochRef.current > stoppedEpochRef.current) return;
+      const code = speechErrorCode(event);
+      // Android often emits these between phrases; not a hard failure.
+      if (code === '6' || code === '7') return;
+      const message = event.error?.message ?? '';
+      if (code === '9' || message.toLowerCase().includes('insufficient')) {
+        setError(
+          'Microphone permission is required for voice. Enable it in Settings → Apps → Rasoi Buddy → Permissions.',
+        );
+      } else if (code === '8' || message.toLowerCase().includes('recognizer')) {
+        setError(
+          'Speech recognition is busy or unavailable. Close other voice apps and try again.',
+        );
+      } else {
+        setError('Could not hear that. Try again.');
+      }
+      listeningRef.current = false;
+      setListening(false);
+      setPaused(true);
+      clearTimer();
+      notifyFlushWaiters();
+    };
+
+    const handleSpeechEnd = () => {
+      if (!listeningRef.current && speechEpochRef.current > stoppedEpochRef.current) return;
+      if (partialRef.current) {
+        appendTranscript(partialRef.current);
+      }
+      listeningRef.current = false;
+      setListening(false);
+      setPaused(true);
+      clearTimer();
+      notifyFlushWaiters();
+    };
+
+    const subscriptions = emitter
+      ? [
+          emitter.addListener('onSpeechResults', handleResults),
+          emitter.addListener('onSpeechPartialResults', handlePartialResults),
+          emitter.addListener('onSpeechError', handleSpeechError),
+          emitter.addListener('onSpeechEnd', handleSpeechEnd),
+        ]
+      : [];
+
     void (async () => {
       try {
         const Voice = (await import('@react-native-voice/voice')).default;
         if (!mounted) return;
 
-        Voice.onSpeechResults = (event) => {
-          const chunk = event.value?.[0]?.trim();
-          if (chunk) appendTranscript(chunk);
-        };
-        Voice.onSpeechPartialResults = (event) => {
-          const chunk = event.value?.[0]?.trim() ?? '';
-          partialRef.current = chunk;
-          setPartialTranscript(chunk);
-        };
-        Voice.onSpeechError = () => {
-          if (!listeningRef.current && speechEpochRef.current > stoppedEpochRef.current) return;
-          setError('Could not hear that. Try again.');
-          listeningRef.current = false;
-          setListening(false);
-          setPaused(true);
-          clearTimer();
-        };
-        Voice.onSpeechEnd = () => {
-          if (!listeningRef.current && speechEpochRef.current > stoppedEpochRef.current) return;
-          if (partialRef.current) {
-            appendTranscript(partialRef.current);
-          }
-          listeningRef.current = false;
-          setListening(false);
-          setPaused(true);
-          clearTimer();
-        };
-
         nativeVoiceRef.current = Voice as unknown as NonNullable<typeof nativeVoiceRef.current>;
-        const available = await Voice.isAvailable();
-        setSupported(Boolean(available));
+        if (Platform.OS === 'android') {
+          setSupported(Boolean(nativeModule));
+        } else {
+          const available = await Voice.isAvailable();
+          setSupported(Boolean(available));
+        }
       } catch {
         if (mounted) setSupported(false);
       }
@@ -162,21 +291,33 @@ export function useVoiceInput({ onResult, lang = 'en-IN' }: UseVoiceInputOptions
 
     return () => {
       mounted = false;
+      subscriptions.forEach((sub) => sub.remove());
       clearTimer();
       void nativeVoiceRef.current?.destroy?.();
       nativeVoiceRef.current = null;
     };
-  }, [appendTranscript, clearTimer]);
+  }, [appendTranscript, clearTimer, notifyFlushWaiters]);
 
   const startListening = useCallback(async () => {
     setError(null);
-    if (!supported) {
+    speechEpochRef.current += 1;
+
+    if (Platform.OS === 'android') {
+      const micOk = await ensureMicPermission();
+      if (!micOk) {
+        speechEpochRef.current -= 1;
+        setError(
+          'Microphone permission is required for voice. Enable it in Settings → Apps → Rasoi Buddy → Permissions.',
+        );
+        return false;
+      }
+    }
+
+    if (!supported && !nativeVoiceRef.current) {
+      speechEpochRef.current -= 1;
       setError('Voice input is not available on this device.');
       return false;
     }
-
-    // Bump before any async work so stale pause/end handlers from a prior session are ignored.
-    speechEpochRef.current += 1;
 
     if (Platform.OS === 'web') {
       const w = window as Window & {
@@ -237,16 +378,40 @@ export function useVoiceInput({ onResult, lang = 'en-IN' }: UseVoiceInputOptions
       return true;
     }
 
+    const voice = nativeVoiceRef.current;
+    if (!voice) {
+      speechEpochRef.current -= 1;
+      setError('Voice input is not available on this device. Rebuild the app with npm run android.');
+      return false;
+    }
+
     try {
-      await nativeVoiceRef.current?.start(lang);
+      if (listeningRef.current) {
+        try {
+          await voice.stop();
+        } catch {
+          // ignore
+        }
+      }
+
+      const androidOpts =
+        Platform.OS === 'android'
+          ? {
+              REQUEST_PERMISSIONS_AUTO: false,
+              EXTRA_SPEECH_INPUT_COMPLETE_SILENCE_LENGTH_MILLIS: 2500,
+              EXTRA_SPEECH_INPUT_POSSIBLY_COMPLETE_SILENCE_LENGTH_MILLIS: 2500,
+            }
+          : undefined;
+
+      await voice.start(lang, androidOpts);
       listeningRef.current = true;
       setListening(true);
       setPaused(false);
       startTimer();
       return true;
-    } catch {
+    } catch (err) {
       speechEpochRef.current -= 1;
-      setError('Microphone permission is required for voice.');
+      setError(voiceStartErrorMessage(err));
       listeningRef.current = false;
       setListening(false);
       return false;
@@ -263,13 +428,15 @@ export function useVoiceInput({ onResult, lang = 'en-IN' }: UseVoiceInputOptions
   }, [resetSession, startListening]);
 
   const pauseRecording = useCallback(() => {
-    if (!listening) return;
-    stopEngine();
-    if (partialRef.current) {
-      appendTranscript(partialRef.current);
-    }
-    setPaused(true);
-    clearTimer();
+    void (async () => {
+      if (!listening) return;
+      await stopEngine();
+      if (partialRef.current) {
+        appendTranscript(partialRef.current);
+      }
+      setPaused(true);
+      clearTimer();
+    })();
   }, [appendTranscript, clearTimer, listening, stopEngine]);
 
   const resumeRecording = useCallback(async () => {
@@ -283,25 +450,37 @@ export function useVoiceInput({ onResult, lang = 'en-IN' }: UseVoiceInputOptions
   }, [isRecording, listening, startListening]);
 
   const cancelRecording = useCallback(() => {
-    stopEngine();
-    if (Platform.OS !== 'web') {
-      void nativeVoiceRef.current?.cancel?.();
-    }
-    resetSession();
-  }, [resetSession, stopEngine]);
+    void (async () => {
+      if (Platform.OS !== 'web') {
+        try {
+          await nativeVoiceRef.current?.cancel?.();
+        } catch {
+          // ignore
+        }
+      } else {
+        webRecognitionRef.current?.abort();
+        webRecognitionRef.current = null;
+      }
+      listeningRef.current = false;
+      setListening(false);
+      resetSession();
+    })();
+  }, [resetSession]);
 
   const submitRecording = useCallback(() => {
-    stopEngine();
-    if (partialRef.current) {
-      appendTranscript(partialRef.current);
-    }
-    const finalText = transcriptRef.current.trim();
-    resetSession();
-    if (finalText) {
-      onResultRef.current(finalText);
-    } else {
-      setError('No speech detected. Try again.');
-    }
+    void (async () => {
+      await stopEngine();
+      if (partialRef.current) {
+        appendTranscript(partialRef.current);
+      }
+      const finalText = transcriptRef.current.trim();
+      resetSession();
+      if (finalText) {
+        onResultRef.current(finalText);
+      } else {
+        setError('No speech detected. Try again.');
+      }
+    })();
   }, [appendTranscript, resetSession, stopEngine]);
 
   const displayTranscript = partialTranscript

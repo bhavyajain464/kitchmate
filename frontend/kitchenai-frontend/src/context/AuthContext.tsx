@@ -10,6 +10,7 @@ import { clearOrderSuggestionsCache } from '../utils/orderSuggestionsCache';
 import { resetWebAppHomePath, resetWebPublicPath } from '../navigation/webHomePath';
 import { isAdminWebPath } from '../navigation/adminPath';
 import { BRAND_DISPLAY_NAME } from '../constants/brand';
+import { syncPushTokenWithBackend, clearPushTokenFromBackend } from '../services/marketingPush';
 
 function getRequiredEnv(value: string | undefined, name: 'EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID' | 'EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID' | 'EXPO_PUBLIC_GOOGLE_ANDROID_CLIENT_ID') {
   const trimmedValue = value?.trim();
@@ -219,6 +220,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setAuthToken(token);
   }, [token]);
 
+  useEffect(() => {
+    if (!token) return;
+    void syncPushTokenWithBackend();
+  }, [token]);
+
   const restoreSession = async () => {
     try {
       // If the bundle changed since the user's last visit, wipe the stored
@@ -264,6 +270,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const clearSession = useCallback(async (opts?: { skipServerLogout?: boolean }) => {
     try {
+      await clearPushTokenFromBackend();
       if (token && !opts?.skipServerLogout) {
         await logoutApi(token).catch(() => {});
       }

@@ -32,7 +32,8 @@ import {
 import { BottomSheet, bottomSheetPrimaryBtn } from './BottomSheet';
 import { BuddyChatComposer } from './BuddyChatComposer';
 import { useAppRefresh } from '../context/AppRefreshContext';
-import { useVoiceInput } from '../hooks/useVoiceInput';
+import { useLocale } from '../context/LocaleContext';
+import { speechLocaleFromAppLang, useVoiceInput } from '../hooks/useVoiceInput';
 import { palette } from '../theme';
 
 const SCREEN_HEIGHT = Dimensions.get('window').height;
@@ -400,6 +401,8 @@ export function AIBuddyChatSheet({
     [sendUserMessage],
   );
 
+  const { language } = useLocale();
+
   const {
     supported: voiceSupported,
     error: voiceError,
@@ -407,12 +410,16 @@ export function AIBuddyChatSheet({
     listening,
     paused,
     durationLabel,
+    transcript: voiceTranscript,
     startRecording,
     pauseRecording,
     resumeRecording,
     cancelRecording,
     submitRecording,
-  } = useVoiceInput({ onResult: handleVoiceResult });
+  } = useVoiceInput({
+    onResult: handleVoiceResult,
+    lang: speechLocaleFromAppLang(language),
+  });
 
   useEffect(() => {
     if (!visible) {
@@ -474,6 +481,7 @@ export function AIBuddyChatSheet({
           listening={listening}
           paused={paused}
           durationLabel={durationLabel}
+          voiceTranscript={voiceTranscript}
           onStartRecording={() => void startRecording()}
           onPauseRecording={pauseRecording}
           onResumeRecording={() => void resumeRecording()}
