@@ -31,6 +31,7 @@
   "expo": {
     "doctor": {
       "reactNativeDirectoryCheck": {
+        "enabled": false,
         "exclude": [
           "react-native-razorpay",
           "react-native-vector-icons",

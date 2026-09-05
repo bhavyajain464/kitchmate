@@ -21,6 +21,7 @@
   "expo": {
     "doctor": {
       "reactNativeDirectoryCheck": {
+        "enabled": false,
         "exclude": [
           "@react-native-cookies/cookies"
         ],

@@ -8,6 +8,10 @@
     "userInterfaceStyle": "light",
     "newArchEnabled": true,
     "scheme": "kitchenai",
+    "androidNavigationBar": {
+      "barStyle": "dark-content",
+      "enforceContrast": false
+    },
     "splash": {
       "image": "./assets/logo.png",
       "resizeMode": "contain",
@@ -40,10 +44,6 @@
       "softwareKeyboardLayoutMode": "resize",
       "predictiveBackGestureEnabled": false,
       "package": "com.kitchenai.app",
-      "androidNavigationBar": {
-        "barStyle": "dark-content",
-        "enforceContrast": false
-      },
       "permissions": [
         "android.permission.CAMERA",
         "android.permission.READ_EXTERNAL_STORAGE",
