@@ -148,6 +148,14 @@ jobs:
           print("Wrote cloudrun-env.yaml")
           PY
 
+          # Previous deploys bound these as Secret Manager refs. Cloud Run rejects
+          # changing a secret-typed env var to a string literal in the same update.
+          gcloud run services update "${SERVICE}" \
+            --project "${PROJECT_ID}" \
+            --region "${REGION}" \
+            --clear-secrets \
+            --quiet || true
+
           gcloud run deploy "${SERVICE}" \
             --image "${IMAGE_SHA}" \
             --project "${PROJECT_ID}" \
@@ -157,7 +165,6 @@ jobs:
             --memory 256Mi \
             --cpu 1 \
             --allow-unauthenticated \
-            --clear-secrets \
             --env-vars-file cloudrun-env.yaml \
             --quiet
 
