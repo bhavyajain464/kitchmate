@@ -11,9 +11,9 @@ import {
 } from 'react-native';
 import { Icon, Text } from 'react-native-paper';
 import { IngredientSearchOverlay } from './IngredientSearchOverlay';
-import { CatalogIngredient } from '../types';
+import { CatalogIngredient, ItemCatalog } from '../types';
 import { useIngredientSearch } from '../hooks/useIngredientSearch';
-import { defaultUnitForCatalogItem, resolveCatalogItem } from '../utils/ingredientUnits';
+import { defaultUnitForCatalogItem, resolveCatalogItem, toItemCatalog } from '../utils/ingredientUnits';
 import {
   MAX_INLINE_OPTIONS,
   OPTION_MIN_HEIGHT,
@@ -23,13 +23,15 @@ import { normalizeUnit } from '../utils/units';
 import { palette } from '../theme';
 
 const COMPACT_HEIGHT = 40;
-const FULLSCREEN_BREAKPOINT = 640;
+const FULLSCREEN_BREAKPOINT = 1024;
 
 export type IngredientPick = {
   ingredient_id: string;
   ingredient_name: string;
   unit: string;
   food_group?: string;
+  /** Snapshot for per-ingredient unit pills when catalog is not preloaded. */
+  catalog?: ItemCatalog;
 };
 
 type Props = {
@@ -127,9 +129,7 @@ export function IngredientNamePicker({
     return filterCatalog(catalog, query, MAX_INLINE_OPTIONS);
   }, [useRemoteSearch, remoteResults, catalog, query]);
 
-  const showDropdown = open && !useFullScreenSearch && (
-    useRemoteSearch ? query.trim().length > 0 : catalog.length > 0
-  );
+  const showDropdown = open && !useFullScreenSearch && (useRemoteSearch || catalog.length > 0);
 
   const applyPick = (item: CatalogIngredient) => {
     if (blurTimer.current) clearTimeout(blurTimer.current);
@@ -143,6 +143,7 @@ export function IngredientNamePicker({
       ingredient_name: item.name,
       unit,
       food_group: item.food_group,
+      catalog: toItemCatalog(item),
     });
   };
 
@@ -241,7 +242,9 @@ export function IngredientNamePicker({
                 <Text style={styles.empty}>Searching…</Text>
               ) : options.length === 0 ? (
                 <Text style={styles.empty}>
-                  {useRemoteSearch ? 'Type to search ingredients' : 'No ingredients match'}
+                  {useRemoteSearch
+                    ? (query.trim() ? 'No ingredients match' : 'No suggestions')
+                    : 'No ingredients match'}
                 </Text>
               ) : (
                 options.map((item) => {

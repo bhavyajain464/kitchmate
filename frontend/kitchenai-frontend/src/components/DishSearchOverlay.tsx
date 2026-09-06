@@ -4,7 +4,6 @@ import {
   FlatList,
   KeyboardAvoidingView,
   Modal,
-  Platform,
   Pressable,
   StyleSheet,
   TextInput as RNTextInput,
@@ -17,6 +16,7 @@ import { MAX_DISH_SEARCH_RESULTS, DISH_ROW_MIN_HEIGHT } from '../utils/dishSearc
 import { fetchDishesCatalog } from '../services/api';
 import type { CatalogDishSearchItem } from '../types';
 import { palette } from '../theme';
+import { keyboardAvoidingBehavior } from '../utils/keyboardAvoidance';
 
 type Props = {
   visible: boolean;
@@ -98,7 +98,7 @@ export function DishSearchOverlay({
     >
       <KeyboardAvoidingView
         style={[styles.root, { paddingTop: insets.top }]}
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        behavior={keyboardAvoidingBehavior()}
       >
         <View style={styles.header}>
           <IconButton icon="close" size={24} onPress={onClose} accessibilityLabel="Close search" />

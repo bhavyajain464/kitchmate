@@ -1,4 +1,5 @@
 import { Platform } from 'react-native';
+import Constants from 'expo-constants';
 import { BRAND_DISPLAY_NAME } from '../constants/brand';
 import { BILL_SCAN_ALERT_MESSAGE } from '../utils/billScanMessage';
 import {
@@ -70,7 +71,18 @@ function resolveApiBaseUrl(): string {
     Platform.OS === 'android' &&
     (url.includes('localhost') || url.includes('127.0.0.1'))
   ) {
-    return url.replace(/localhost|127\.0\.0\.1/g, '10.0.2.2');
+    // USB dev: adb reverse maps device localhost → Mac (check before emulator rewrite).
+    if (process.env.EXPO_PUBLIC_USB_DEV === '1') {
+      return url;
+    }
+    if (!Constants.isDevice) {
+      // Emulator only — physical devices cannot reach 10.0.2.2.
+      return url.replace(/localhost|127\.0\.0\.1/g, '10.0.2.2');
+    }
+    const lanHost = process.env.EXPO_PUBLIC_DEV_SERVER_HOST?.trim();
+    if (lanHost) {
+      return url.replace(/localhost|127\.0\.0\.1/g, lanHost);
+    }
   }
   return url;
 }
@@ -1360,5 +1372,77 @@ export async function upsertPanelDish(body: {
   }
   const data = await res.json();
   return typeof data.id === 'string' ? data.id : body.id ?? '';
+}
+
+// ─── Push notifications ─────────────────────────────────────
+
+export type PushPreferences = {
+  marketing_enabled: boolean;
+};
+
+export async function registerPushToken(body: {
+  expo_push_token: string;
+  platform: 'ios' | 'android';
+  device_id?: string;
+}): Promise<void> {
+  const res = await authFetch(`${API_BASE_URL}/notifications/push-token`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) await parseApiError(res, 'Could not register for notifications');
+}
+
+export async function deletePushToken(body: { expo_push_token: string }): Promise<void> {
+  const res = await authFetch(`${API_BASE_URL}/notifications/push-token`, {
+    method: 'DELETE',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) await parseApiError(res, 'Could not unregister notifications');
+}
+
+export async function getPushPreferences(): Promise<PushPreferences> {
+  const res = await authFetch(`${API_BASE_URL}/notifications/preferences`);
+  if (!res.ok) await parseApiError(res, 'Could not load notification settings');
+  return res.json();
+}
+
+export async function updatePushPreferences(marketing_enabled: boolean): Promise<PushPreferences> {
+  const res = await authFetch(`${API_BASE_URL}/notifications/preferences`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ marketing_enabled }),
+  });
+  if (!res.ok) await parseApiError(res, 'Could not update notification settings');
+  return res.json();
+}
+
+export type PanelPushSendResult = {
+  log_id: string;
+  tokens_targeted: number;
+  tickets_ok: number;
+  tickets_error: number;
+  invalid_tokens_removed: number;
+};
+
+export async function panelSendPush(body: {
+  title: string;
+  body: string;
+  screen?: string;
+  campaign_key?: string;
+  broadcast?: boolean;
+  user_email?: string;
+  user_id?: string;
+}): Promise<PanelPushSendResult> {
+  const res = await authFetch(`${API_BASE_URL}/panel/push/send`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) {
+    throw new Error(res.status === 404 ? 'Not found' : `HTTP ${res.status}`);
+  }
+  return res.json();
 }
 

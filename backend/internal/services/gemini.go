@@ -222,10 +222,60 @@ Return ONLY a JSON array, no markdown:
 	return parseShelfLifeJSON(responseText)
 }
 
-// ParseBillItems parses the JSON response from Gemini into BillItem slice
+// ParseBillItems parses LLM bill-scan JSON into BillItem slice.
+// Accepts, in order:
+//  1. Compact tuples: [["Potato",1,"kg",14], ...]  // 4th = shelf_life_days
+//  2. Short keys: [{"n":"Potato","q":1,"u":"kg","s":14}, ...]
+//  3. Legacy objects: [{"name":"Potato","quantity":1,...}, ...]
 func ParseBillItems(jsonResponse string) ([]BillItem, error) {
-	// Clean the response - remove markdown code blocks if present
-	cleaned := strings.TrimSpace(jsonResponse)
+	cleaned := stripMarkdownFence(jsonResponse)
+	if cleaned == "" {
+		return nil, fmt.Errorf("empty bill scan response")
+	}
+
+	if items, ok := tryParseBillItemTuples(cleaned); ok {
+		return SanitizeBillItems(items), nil
+	}
+	if items, ok := tryParseBillItemShortKeys(cleaned); ok {
+		return SanitizeBillItems(items), nil
+	}
+
+	var items []BillItem
+	if err := json.Unmarshal([]byte(cleaned), &items); err != nil {
+		var singleItem BillItem
+		if err2 := json.Unmarshal([]byte(cleaned), &singleItem); err2 == nil && strings.TrimSpace(singleItem.Name) != "" {
+			items = []BillItem{singleItem}
+		} else {
+			start := strings.Index(cleaned, "[")
+			end := strings.LastIndex(cleaned, "]")
+			if start != -1 && end != -1 && end > start {
+				jsonStr := cleaned[start : end+1]
+				if items2, ok := tryParseBillItemTuples(jsonStr); ok {
+					return SanitizeBillItems(items2), nil
+				}
+				if items2, ok := tryParseBillItemShortKeys(jsonStr); ok {
+					return SanitizeBillItems(items2), nil
+				}
+				if err3 := json.Unmarshal([]byte(jsonStr), &items); err3 != nil {
+					return nil, fmt.Errorf("failed to parse bill scan JSON: %w", err3)
+				}
+			} else {
+				return nil, fmt.Errorf("no valid JSON found in bill scan response: %w", err)
+			}
+		}
+	}
+
+	return SanitizeBillItems(items), nil
+}
+
+func stripMarkdownFence(s string) string {
+	cleaned := strings.TrimSpace(s)
+	// Drop Qwen-style thinking blocks if reasoning wasn't fully disabled.
+	if i := strings.Index(cleaned, "<think>"); i >= 0 {
+		if j := strings.Index(cleaned, "</think>"); j > i {
+			cleaned = strings.TrimSpace(cleaned[j+len("</think>"):])
+		}
+	}
 	if strings.HasPrefix(cleaned, "```json") {
 		cleaned = strings.TrimPrefix(cleaned, "```json")
 	}
@@ -235,43 +285,135 @@ func ParseBillItems(jsonResponse string) ([]BillItem, error) {
 	if strings.HasSuffix(cleaned, "```") {
 		cleaned = strings.TrimSuffix(cleaned, "```")
 	}
-	cleaned = strings.TrimSpace(cleaned)
+	return strings.TrimSpace(cleaned)
+}
 
-	// Try to parse as JSON
-	var items []BillItem
-	if err := json.Unmarshal([]byte(cleaned), &items); err != nil {
-		// If parsing fails, try alternative formats or return error
-		// First, check if it's a single object instead of array
-		var singleItem BillItem
-		if err2 := json.Unmarshal([]byte(cleaned), &singleItem); err2 == nil {
-			items = []BillItem{singleItem}
-		} else {
-			// If still fails, try to extract JSON array from text
-			// Look for array pattern
-			start := strings.Index(cleaned, "[")
-			end := strings.LastIndex(cleaned, "]")
-			if start != -1 && end != -1 && end > start {
-				jsonStr := cleaned[start : end+1]
-				if err3 := json.Unmarshal([]byte(jsonStr), &items); err3 != nil {
-					// Last resort: return mock data for testing
-					return []BillItem{
-						{Name: "Basmati Rice", Quantity: 5, Unit: "kg", PricePerUnit: 120, TotalPrice: 600},
-						{Name: "Tomatoes", Quantity: 2, Unit: "kg", PricePerUnit: 40, TotalPrice: 80},
-						{Name: "Onions", Quantity: 3, Unit: "kg", PricePerUnit: 30, TotalPrice: 90},
-					}, fmt.Errorf("failed to parse JSON, using mock data: %v", err3)
-				}
-			} else {
-				// No JSON array found, return mock data
-				return []BillItem{
-					{Name: "Basmati Rice", Quantity: 5, Unit: "kg", PricePerUnit: 120, TotalPrice: 600},
-					{Name: "Tomatoes", Quantity: 2, Unit: "kg", PricePerUnit: 40, TotalPrice: 80},
-					{Name: "Onions", Quantity: 3, Unit: "kg", PricePerUnit: 30, TotalPrice: 90},
-				}, fmt.Errorf("no valid JSON found in response, using mock data: %v", err)
-			}
+func tryParseBillItemTuples(raw string) ([]BillItem, bool) {
+	var rows [][]any
+	if err := json.Unmarshal([]byte(raw), &rows); err != nil || len(rows) == 0 {
+		return nil, false
+	}
+	items := make([]BillItem, 0, len(rows))
+	for _, row := range rows {
+		if len(row) < 1 {
+			continue
+		}
+		// Reject object-shaped arrays mis-detected as tuples (first elem map).
+		if _, isMap := row[0].(map[string]any); isMap {
+			return nil, false
+		}
+		name := anyToString(row[0])
+		if strings.TrimSpace(name) == "" {
+			continue
+		}
+		item := BillItem{Name: name, Quantity: 1}
+		if len(row) > 1 {
+			item.Quantity = anyToFloat(row[1])
+		}
+		if len(row) > 2 {
+			item.Unit = anyToString(row[2])
+		}
+		if len(row) > 3 {
+			item.ShelfLifeDays = int(anyToFloat(row[3]) + 0.5) // round
+		}
+		items = append(items, item)
+	}
+	if len(items) == 0 {
+		return nil, false
+	}
+	return items, true
+}
+
+type billItemShortKey struct {
+	N string  `json:"n"`
+	Q float64 `json:"q"`
+	U string  `json:"u"`
+	S float64 `json:"s"` // shelf_life_days
+	// Aliases if model mixes short + long keys.
+	Name          string  `json:"name"`
+	Quantity      float64 `json:"quantity"`
+	Unit          string  `json:"unit"`
+	ShelfLifeDays float64 `json:"shelf_life_days"`
+}
+
+func tryParseBillItemShortKeys(raw string) ([]BillItem, bool) {
+	var rows []billItemShortKey
+	if err := json.Unmarshal([]byte(raw), &rows); err != nil || len(rows) == 0 {
+		return nil, false
+	}
+	items := make([]BillItem, 0, len(rows))
+	shortHits := 0
+	for _, r := range rows {
+		name := strings.TrimSpace(firstNonEmpty(r.N, r.Name))
+		if name == "" {
+			continue
+		}
+		if strings.TrimSpace(r.N) != "" {
+			shortHits++
+		}
+		qty := r.Q
+		if qty <= 0 {
+			qty = r.Quantity
+		}
+		unit := firstNonEmpty(r.U, r.Unit)
+		shelf := int(r.S + 0.5)
+		if shelf <= 0 {
+			shelf = int(r.ShelfLifeDays + 0.5)
+		}
+		items = append(items, BillItem{
+			Name:          name,
+			Quantity:      qty,
+			Unit:          unit,
+			ShelfLifeDays: shelf,
+		})
+	}
+	// Prefer this path only when short keys were actually used (or mixed).
+	if len(items) == 0 || shortHits == 0 {
+		return nil, false
+	}
+	return items, true
+}
+
+func firstNonEmpty(vals ...string) string {
+	for _, v := range vals {
+		if strings.TrimSpace(v) != "" {
+			return strings.TrimSpace(v)
 		}
 	}
+	return ""
+}
 
-	return SanitizeBillItems(items), nil
+func anyToString(v any) string {
+	switch t := v.(type) {
+	case string:
+		return t
+	case float64:
+		return fmt.Sprintf("%v", t)
+	case json.Number:
+		return t.String()
+	default:
+		return fmt.Sprintf("%v", t)
+	}
+}
+
+func anyToFloat(v any) float64 {
+	switch t := v.(type) {
+	case float64:
+		return t
+	case json.Number:
+		f, _ := t.Float64()
+		return f
+	case string:
+		var f float64
+		fmt.Sscanf(strings.TrimSpace(t), "%f", &f)
+		return f
+	case int:
+		return float64(t)
+	case int64:
+		return float64(t)
+	default:
+		return 0
+	}
 }
 
 // SanitizeBillItems normalizes parsed bill line items (names, units, food groups).

@@ -2,7 +2,6 @@ import React, { useEffect, useRef, useState } from 'react';
 import {
   Animated,
   Dimensions,
-  KeyboardAvoidingView,
   Modal,
   PanResponder,
   Platform,
@@ -14,6 +13,7 @@ import {
 } from 'react-native';
 import { IconButton, Portal, Text } from 'react-native-paper';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useKeyboardHeight } from '../hooks/useKeyboardHeight';
 import { useWebScrollViewGuard } from '../hooks/useWebScrollViewGuard';
 import { palette } from '../theme';
 
@@ -48,6 +48,7 @@ export function BottomSheet({
   footerStyle,
 }: Props) {
   const insets = useSafeAreaInsets();
+  const keyboardHeight = useKeyboardHeight();
   const slideAnim = useRef(new Animated.Value(SCREEN_HEIGHT)).current;
   const fadeAnim = useRef(new Animated.Value(0)).current;
   const dragAnim = useRef(new Animated.Value(0)).current;
@@ -152,8 +153,13 @@ export function BottomSheet({
     <ScrollView
       ref={scrollRef}
       style={styles.scroll}
-      contentContainerStyle={styles.scrollContent}
+      contentContainerStyle={[
+        styles.scrollContent,
+        keyboardHeight > 0 ? { paddingBottom: 16 } : null,
+      ]}
       keyboardShouldPersistTaps="handled"
+      keyboardDismissMode="on-drag"
+      automaticallyAdjustKeyboardInsets
       showsVerticalScrollIndicator={false}
       bounces={false}
       nestedScrollEnabled
@@ -166,6 +172,10 @@ export function BottomSheet({
   ) : (
     <View style={styles.staticBody}>{children}</View>
   );
+
+  const sheetBottomPad = Math.max(insets.bottom, 12) + (Platform.OS === 'web' ? keyboardHeight : 0);
+  /** Lift the whole sheet above the native keyboard; web uses viewport padding instead. */
+  const sheetKeyboardOffset = Platform.OS === 'web' ? 0 : keyboardHeight;
 
   return (
     <Modal
@@ -190,7 +200,8 @@ export function BottomSheet({
               styles.sheet,
               {
                 maxHeight: SCREEN_HEIGHT * maxHeightRatio,
-                paddingBottom: Math.max(insets.bottom, 12),
+                bottom: sheetKeyboardOffset,
+                paddingBottom: sheetBottomPad,
                 transform: [{ translateY: sheetTranslateY }],
               },
               sheetStyle,
@@ -217,14 +228,10 @@ export function BottomSheet({
               />
             </View>
 
-            <KeyboardAvoidingView
-              behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-              style={styles.body}
-              keyboardVerticalOffset={Platform.OS === 'ios' ? 8 : 0}
-            >
+            <View style={styles.body}>
               {bodyContent}
               {footer ? <View style={[styles.footer, footerStyle]}>{footer}</View> : null}
-            </KeyboardAvoidingView>
+            </View>
           </Animated.View>
         </View>
       </Portal.Host>
@@ -254,13 +261,16 @@ export const bottomSheetInput = {
 const styles = StyleSheet.create({
   root: {
     flex: 1,
-    justifyContent: 'flex-end',
   },
   backdrop: {
     ...StyleSheet.absoluteFillObject,
     backgroundColor: 'rgba(0, 0, 0, 0.5)',
   },
   sheet: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    bottom: 0,
     backgroundColor: '#fff',
     borderTopLeftRadius: 20,
     borderTopRightRadius: 20,

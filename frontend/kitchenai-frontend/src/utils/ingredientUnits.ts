@@ -1,5 +1,15 @@
-import type { CatalogIngredient } from '../types';
+import type { CatalogIngredient, ItemCatalog } from '../types';
 import { DEFAULT_UNIT, UNIT_OPTIONS, normalizeUnit } from './units';
+
+export function toItemCatalog(item: CatalogIngredient): ItemCatalog {
+  return {
+    ingredient_id: item.ingredient_id,
+    name: item.name,
+    default_unit: item.default_unit,
+    units: item.units,
+    food_group: item.food_group,
+  };
+}
 
 function normKey(s: string): string {
   return s.trim().toLowerCase();

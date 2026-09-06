@@ -107,6 +107,9 @@ export function DietNutrientAnalysis({ eligible }: Props) {
   const [selectedDate, setSelectedDate] = useState(dateInIST(0));
   const [report, setReport] = useState<DietDayReport | null>(null);
   const [mealCount, setMealCount] = useState(0);
+  const [analysisStatus, setAnalysisStatus] = useState<string>('');
+  const [pendingCount, setPendingCount] = useState(0);
+  const [failedCount, setFailedCount] = useState(0);
   const [loading, setLoading] = useState(false);
   const [needsUpgrade, setNeedsUpgrade] = useState(false);
 
@@ -131,27 +134,37 @@ export function DietNutrientAnalysis({ eligible }: Props) {
     </View>
   );
 
-  const loadReport = useCallback(async (dateISO: string) => {
+  const loadReport = useCallback(async (dateISO: string, opts?: { quiet?: boolean }) => {
     if (!eligible) {
       setNeedsUpgrade(true);
       return;
     }
-    setLoading(true);
+    if (!opts?.quiet) {
+      setLoading(true);
+    }
     setNeedsUpgrade(false);
     try {
       const res = await api.getDietDayReport(dateISO);
       setMealCount(res.entries?.length ?? 0);
       setReport(res.report ?? null);
+      setAnalysisStatus(res.analysis_status ?? '');
+      setPendingCount(res.pending_count ?? 0);
+      setFailedCount(res.failed_count ?? 0);
     } catch (err) {
       setReport(null);
       setMealCount(0);
+      setAnalysisStatus('');
+      setPendingCount(0);
+      setFailedCount(0);
       if (err instanceof UpgradeRequiredError) {
         setNeedsUpgrade(true);
-      } else {
+      } else if (!opts?.quiet) {
         showAppError(userFacingError(err, 'Could not load nutrient analysis.'));
       }
     } finally {
-      setLoading(false);
+      if (!opts?.quiet) {
+        setLoading(false);
+      }
     }
   }, [eligible]);
 
@@ -160,6 +173,17 @@ export function DietNutrientAnalysis({ eligible }: Props) {
       void loadReport(selectedDate);
     }
   }, [eligible, selectedDate, loadReport]);
+
+  // Poll while meals are still being analyzed.
+  useEffect(() => {
+    if (!eligible) return;
+    if (analysisStatus !== 'pending' && analysisStatus !== 'partial') return;
+    if (pendingCount <= 0) return;
+    const id = setInterval(() => {
+      void loadReport(selectedDate, { quiet: true });
+    }, 4000);
+    return () => clearInterval(id);
+  }, [eligible, analysisStatus, pendingCount, selectedDate, loadReport]);
 
   const openDietUpgrade = () => {
     openUpgrade({ source: 'diet_analysis', preferredTier: 'elite', preferredInterval: 'monthly' });
@@ -175,93 +199,138 @@ export function DietNutrientAnalysis({ eligible }: Props) {
     );
   }
 
+  const renderBody = () => {
+    if (loading) {
+      return <ActivityIndicator color={ACCENT} style={styles.loader} />;
+    }
+    if (mealCount === 0) {
+      return (
+        <Text variant="bodySmall" style={styles.empty}>
+          No meals logged for {formatDateLabel(selectedDate).toLowerCase()}. Log meals on the Meal planning tab to see analysis here.
+        </Text>
+      );
+    }
+    if (analysisStatus === 'pending' || (analysisStatus === 'partial' && !report)) {
+      return (
+        <View style={styles.statusBlock}>
+          <ActivityIndicator color={ACCENT} />
+          <Text variant="bodySmall" style={styles.statusText}>
+            Analysis in progress for {pendingCount || mealCount} meal{pendingCount === 1 ? '' : 's'}…
+          </Text>
+        </View>
+      );
+    }
+    if (analysisStatus === 'failed' && !report) {
+      return (
+        <Text variant="bodySmall" style={styles.empty}>
+          Nutrient analysis failed for this day. Log the meal again or try later.
+        </Text>
+      );
+    }
+    if (analysisStatus === 'legacy_only' && !report) {
+      return (
+        <Text variant="bodySmall" style={styles.empty}>
+          These meals were logged before per-meal analysis. New meals will show nutrients automatically.
+        </Text>
+      );
+    }
+    if (!report) {
+      return (
+        <Text variant="bodySmall" style={styles.empty}>
+          Could not generate analysis. Try again in a moment.
+        </Text>
+      );
+    }
+    return (
+      <>
+        {analysisStatus === 'partial' && pendingCount > 0 ? (
+          <Text variant="bodySmall" style={styles.partialBanner}>
+            Showing completed meals — {pendingCount} still analyzing…
+          </Text>
+        ) : null}
+        {failedCount > 0 ? (
+          <Text variant="bodySmall" style={styles.failedBanner}>
+            {failedCount} meal{failedCount === 1 ? '' : 's'} could not be analyzed.
+          </Text>
+        ) : null}
+        {report.balance_score > 0 ? (
+          <View style={styles.scoreRow}>
+            <Text variant="labelMedium" style={styles.scoreLabel}>Balance score</Text>
+            <Text variant="titleMedium" style={styles.scoreValue}>{report.balance_score}/100</Text>
+          </View>
+        ) : null}
+
+        <Text variant="labelLarge" style={[styles.sectionTitle, report.balance_score > 0 ? undefined : styles.firstSectionTitle]}>
+          Macro split
+        </Text>
+        <MacroSplitPie
+          protein={report.macro_split_pct.protein}
+          carbs={report.macro_split_pct.carbs}
+          fat={report.macro_split_pct.fat}
+        />
+
+        <Text variant="labelLarge" style={styles.sectionTitle}>Daily totals</Text>
+        <View style={styles.macroGrid}>
+          <MacroStat label="Calories" value={report.totals.calories_kcal} unit="kcal" />
+          <MacroStat label="Protein" value={report.totals.protein_g} unit="g" />
+          <MacroStat label="Carbs" value={report.totals.carbs_g} unit="g" />
+          <MacroStat label="Fat" value={report.totals.fat_g} unit="g" />
+          <MacroStat label="Fiber" value={report.totals.fiber_g} unit="g" />
+          <MacroStat label="Sugar" value={report.totals.sugar_g} unit="g" />
+        </View>
+        <Text variant="bodySmall" style={styles.sodium}>
+          Sodium: {Math.round(report.totals.sodium_mg)} mg
+        </Text>
+
+        {report.meals.length > 0 ? (
+          <>
+            <Text variant="labelLarge" style={styles.sectionTitle}>Per meal</Text>
+            {report.meals.map((meal, i) => (
+              <View key={`${meal.name}-${i}`} style={styles.mealRow}>
+                <View style={styles.mealLeft}>
+                  <Text variant="bodyMedium" style={styles.mealName}>{meal.name}</Text>
+                  {meal.slot ? (
+                    <Text variant="labelSmall" style={styles.mealSlot}>{meal.slot}</Text>
+                  ) : null}
+                </View>
+                <View style={styles.mealRight}>
+                  <Text variant="labelMedium" style={styles.mealKcal}>
+                    {Math.round(meal.calories_kcal)} kcal
+                  </Text>
+                  <Text variant="labelSmall" style={styles.mealMacros}>
+                    P {Math.round(meal.protein_g)}g · C {Math.round(meal.carbs_g)}g · F {Math.round(meal.fat_g)}g
+                  </Text>
+                </View>
+              </View>
+            ))}
+          </>
+        ) : null}
+
+        {report.micronutrients.length > 0 ? (
+          <>
+            <Text variant="labelLarge" style={styles.sectionTitle}>Micronutrients</Text>
+            {report.micronutrients.map((m, i) => (
+              <MicroRow key={`${m.name}-${i}`} item={m} />
+            ))}
+          </>
+        ) : null}
+
+        <BulletList title="Highlights" items={report.highlights} icon="thumb-up-outline" />
+        <BulletList title="Suggestions for tomorrow" items={report.suggestions} icon="lightbulb-outline" />
+
+        {report.disclaimer?.trim() ? (
+          <Text variant="labelSmall" style={styles.disclaimer}>{report.disclaimer}</Text>
+        ) : null}
+      </>
+    );
+  };
+
   return (
     <View style={styles.wrap}>
       {datePicker}
 
       <Surface style={styles.card} elevation={1}>
-        {loading ? (
-        <ActivityIndicator color={ACCENT} style={styles.loader} />
-      ) : mealCount === 0 ? (
-        <Text variant="bodySmall" style={styles.empty}>
-          No meals logged for {formatDateLabel(selectedDate).toLowerCase()}. Log meals on the Meal planning tab to see analysis here.
-        </Text>
-      ) : !report ? (
-        <Text variant="bodySmall" style={styles.empty}>
-          Could not generate analysis. Try again in a moment.
-        </Text>
-      ) : (
-        <>
-          {report.balance_score > 0 ? (
-            <View style={styles.scoreRow}>
-              <Text variant="labelMedium" style={styles.scoreLabel}>Balance score</Text>
-              <Text variant="titleMedium" style={styles.scoreValue}>{report.balance_score}/100</Text>
-            </View>
-          ) : null}
-
-          <Text variant="labelLarge" style={[styles.sectionTitle, report.balance_score > 0 ? undefined : styles.firstSectionTitle]}>
-            Macro split
-          </Text>
-          <MacroSplitPie
-            protein={report.macro_split_pct.protein}
-            carbs={report.macro_split_pct.carbs}
-            fat={report.macro_split_pct.fat}
-          />
-
-          <Text variant="labelLarge" style={styles.sectionTitle}>Daily totals</Text>
-          <View style={styles.macroGrid}>
-            <MacroStat label="Calories" value={report.totals.calories_kcal} unit="kcal" />
-            <MacroStat label="Protein" value={report.totals.protein_g} unit="g" />
-            <MacroStat label="Carbs" value={report.totals.carbs_g} unit="g" />
-            <MacroStat label="Fat" value={report.totals.fat_g} unit="g" />
-            <MacroStat label="Fiber" value={report.totals.fiber_g} unit="g" />
-            <MacroStat label="Sugar" value={report.totals.sugar_g} unit="g" />
-          </View>
-          <Text variant="bodySmall" style={styles.sodium}>
-            Sodium: {Math.round(report.totals.sodium_mg)} mg
-          </Text>
-
-          {report.meals.length > 0 ? (
-            <>
-              <Text variant="labelLarge" style={styles.sectionTitle}>Per meal</Text>
-              {report.meals.map((meal, i) => (
-                <View key={`${meal.name}-${i}`} style={styles.mealRow}>
-                  <View style={styles.mealLeft}>
-                    <Text variant="bodyMedium" style={styles.mealName}>{meal.name}</Text>
-                    {meal.slot ? (
-                      <Text variant="labelSmall" style={styles.mealSlot}>{meal.slot}</Text>
-                    ) : null}
-                  </View>
-                  <View style={styles.mealRight}>
-                    <Text variant="labelMedium" style={styles.mealKcal}>
-                      {Math.round(meal.calories_kcal)} kcal
-                    </Text>
-                    <Text variant="labelSmall" style={styles.mealMacros}>
-                      P {Math.round(meal.protein_g)}g · C {Math.round(meal.carbs_g)}g · F {Math.round(meal.fat_g)}g
-                    </Text>
-                  </View>
-                </View>
-              ))}
-            </>
-          ) : null}
-
-          {report.micronutrients.length > 0 ? (
-            <>
-              <Text variant="labelLarge" style={styles.sectionTitle}>Micronutrients</Text>
-              {report.micronutrients.map((m, i) => (
-                <MicroRow key={`${m.name}-${i}`} item={m} />
-              ))}
-            </>
-          ) : null}
-
-          <BulletList title="Highlights" items={report.highlights} icon="thumb-up-outline" />
-          <BulletList title="Suggestions for tomorrow" items={report.suggestions} icon="lightbulb-outline" />
-
-          {report.disclaimer?.trim() ? (
-            <Text variant="labelSmall" style={styles.disclaimer}>{report.disclaimer}</Text>
-          ) : null}
-        </>
-      )}
+        {renderBody()}
       </Surface>
     </View>
   );
@@ -290,6 +359,10 @@ const styles = StyleSheet.create({
   dateChipTextOn: { color: ACCENT, fontWeight: '700' },
   loader: { marginVertical: 24 },
   empty: { color: '#666', lineHeight: 20, textAlign: 'center', marginVertical: 16 },
+  statusBlock: { alignItems: 'center', gap: 10, marginVertical: 20 },
+  statusText: { color: '#666', textAlign: 'center', lineHeight: 20 },
+  partialBanner: { color: '#EF6C00', marginBottom: 10, lineHeight: 18 },
+  failedBanner: { color: '#C62828', marginBottom: 10, lineHeight: 18 },
   scoreRow: {
     flexDirection: 'row',
     alignItems: 'center',

@@ -20,6 +20,12 @@ func trimInvoiceTextForLLM(raw string) string {
 		"\nANNEXURE",
 		"\nAnnexure",
 		"\nAmount in words:",
+		"\nAmount in Words:",
+		"\nAMOUNT IN WORDS:",
+		"\nInvoice Amount (in words)",
+		"\nPAYMENT QR",
+		"\nPayment QR",
+		"\nTerms and Conditions",
 		"\nDisclaimer:",
 		"\nDISCLAIMER:",
 	}
@@ -46,9 +52,9 @@ func scanBillGroqFromInvoiceText(ctx context.Context, cfg *config.Config, invoic
 	if text == "" {
 		return nil, fmt.Errorf("no bill text to parse")
 	}
-	prompt := billScanGroqTextPrompt + "\n\n--- INVOICE TEXT ---\n" + text
+	prompt := billScanCompactTextPrompt + "\n\n---\n" + text
 	model := cfg.EffectiveGroqModel()
-	out, err := groqChat(ctx, cfg.PickGroqAPIKey(), model, 0.1, groqMaxTokensBillScan, []groqMessage{
+	out, err := groqChatBillExtract(ctx, cfg.PickGroqAPIKey(), model, groqMaxTokensBillScan, []groqMessage{
 		{Role: "user", Content: prompt},
 	})
 	if err != nil {

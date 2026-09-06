@@ -1,11 +1,7 @@
 /**
- * Play Console flags deprecated Window.setStatusBarColor / setNavigationBarColor
- * inside transitive release dependencies. This plugin:
- * 1. Excludes Compose ui-tooling (PreviewActivity) from release classpaths
- * 2. Strips PreviewActivity from the merged manifest
- *
- * Remaining warnings may come from Google ML Kit (expo-camera barcode), Glide
- * (expo-image-loader), and AndroidX Lifecycle until those SDKs ship updates.
+ * Play Console compliance for Android 15+:
+ * 1. Edge-to-edge — strip deprecated status/navigation bar theme attrs and Compose PreviewActivity
+ * 2. Large screens — ensure activities are resizable and not orientation-locked in the manifest
  */
 const {
   withAndroidManifest,
@@ -24,7 +20,35 @@ const DEPRECATED_THEME_ITEMS = [
   'android:navigationBarColor',
   'android:windowTranslucentStatus',
   'android:windowTranslucentNavigation',
+  'android:windowOptOutEdgeToEdgeEnforcement',
 ];
+
+const ORIENTATION_ATTRS = [
+  'android:screenOrientation',
+  'android:maxAspectRatio',
+  'android:minAspectRatio',
+];
+
+function isMainActivity(name) {
+  return name === '.MainActivity' || name === 'MainActivity' || name?.endsWith('.MainActivity');
+}
+
+function stripDeprecatedStyles(styles) {
+  let next = styles;
+  const parent = AndroidConfig.Styles.getAppThemeGroup();
+  for (const name of DEPRECATED_THEME_ITEMS) {
+    next = AndroidConfig.Styles.removeStylesItem({ xml: next, parent, name });
+  }
+  if (next.resources?.style) {
+    for (const styleGroup of next.resources.style) {
+      if (!Array.isArray(styleGroup.item)) continue;
+      styleGroup.item = styleGroup.item.filter(
+        (item) => !DEPRECATED_THEME_ITEMS.includes(item.$?.name),
+      );
+    }
+  }
+  return next;
+}
 
 function withEdgeToEdgeReleaseFix(config) {
   config = withProjectBuildGradle(config, (cfg) => {
@@ -74,6 +98,7 @@ gradle.projectsLoaded {
   config = withAndroidManifest(config, (cfg) => {
     const manifest = AndroidConfig.Manifest.ensureToolsAvailable(cfg.modResults);
     const app = AndroidConfig.Manifest.getMainApplicationOrThrow(manifest);
+
     const activities = app.activity ?? [];
     const already = activities.some(
       (entry) => entry?.$?.['android:name'] === PREVIEW_ACTIVITY,
@@ -89,25 +114,34 @@ gradle.projectsLoaded {
         },
       ];
     }
+
+    for (const activity of app.activity ?? []) {
+      if (!activity?.$) continue;
+      const name = activity.$['android:name'];
+      if (!isMainActivity(name)) continue;
+      activity.$['android:resizeableActivity'] = 'true';
+      for (const attr of ORIENTATION_ATTRS) {
+        delete activity.$[attr];
+      }
+    }
+
+    for (const activity of app.activity ?? []) {
+      if (!activity?.$) continue;
+      for (const attr of ORIENTATION_ATTRS) {
+        delete activity.$[attr];
+      }
+    }
+
+    const properties = app.property ?? [];
+    const blocked = 'android.window.PROPERTY_COMPAT_ALLOW_RESTRICTED_RESIZABILITY';
+    app.property = properties.filter((entry) => entry?.$?.['android:name'] !== blocked);
+
     cfg.modResults = manifest;
     return cfg;
   });
 
   config = withAndroidStyles(config, (cfg) => {
-    let styles = cfg.modResults;
-    const parent = AndroidConfig.Styles.getAppThemeGroup();
-    for (const name of DEPRECATED_THEME_ITEMS) {
-      styles = AndroidConfig.Styles.removeStylesItem({ xml: styles, parent, name });
-    }
-    if (styles.resources?.style) {
-      for (const styleGroup of styles.resources.style) {
-        if (!Array.isArray(styleGroup.item)) continue;
-        styleGroup.item = styleGroup.item.filter(
-          (item) => !DEPRECATED_THEME_ITEMS.includes(item.$?.name),
-        );
-      }
-    }
-    cfg.modResults = styles;
+    cfg.modResults = stripDeprecatedStyles(cfg.modResults);
     return cfg;
   });
 

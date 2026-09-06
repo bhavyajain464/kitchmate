@@ -49,13 +49,18 @@ export function getDishImageSource(
   const remoteFromLookup = remoteUrls?.[variant];
   if (remoteFromLookup) return { uri: remoteFromLookup };
 
+  const bundled = DISH_CARD_IMAGES[id];
+
+  // Card lists: instant bundled WebP when available; CDN for the rest.
+  if (variant === 'card') {
+    if (bundled) return bundled;
+    const remote = getDishImageUrl(id, 'card');
+    return remote ? { uri: remote } : null;
+  }
+
+  // Thumb / hero: prefer CDN (higher-res variants); fall back to bundled card.
   const remote = getDishImageUrl(id, variant);
   if (remote) return { uri: remote };
-
-  const bundled = DISH_CARD_IMAGES[id];
-  if (bundled && (variant === 'card' || variant === 'thumb' || variant === 'hero')) {
-    return bundled;
-  }
 
   if (variant === 'hero') {
     for (const fallback of ['card', 'thumb'] as const) {
@@ -63,6 +68,8 @@ export function getDishImageSource(
       if (remoteFallback) return { uri: remoteFallback };
     }
   }
+
+  if (bundled) return bundled;
 
   return null;
 }

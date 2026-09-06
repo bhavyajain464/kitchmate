@@ -1,5 +1,6 @@
 import React from 'react';
-import { Image, StyleSheet, Text, View, type StyleProp, type ViewStyle } from 'react-native';
+import { StyleSheet, Text, View, type StyleProp, type ViewStyle } from 'react-native';
+import { OptimizedImage } from './OptimizedImage';
 import { brandIconMark } from '../constants/brand';
 
 /** Matches landing-page nav: green glow + icon-mark + “Rasoi Buddy” wordmark. */
@@ -28,7 +29,7 @@ export function BrandMark({
             },
           ]}
         />
-        <Image
+        <OptimizedImage
           source={brandIconMark}
           style={[
             styles.icon,

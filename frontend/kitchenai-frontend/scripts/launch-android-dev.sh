@@ -7,15 +7,17 @@ PACKAGE="com.kitchenai.app"
 PORT="${EXPO_METRO_PORT:-8082}"
 SCHEME="exp+kitchenai-frontend"
 
-# Emulator: 10.0.2.2 is the host Mac. Physical device: set DEV_SERVER_HOST to your LAN IP.
+# Emulator: 10.0.2.2 is the host Mac. Physical USB: adb reverse + 127.0.0.1.
 if adb shell getprop ro.kernel.qemu 2>/dev/null | grep -q 1; then
   HOST="${DEV_SERVER_HOST:-10.0.2.2}"
 else
-  HOST="${DEV_SERVER_HOST:-$(ipconfig getifaddr en0 2>/dev/null || hostname -I 2>/dev/null | awk '{print $1}')}"
+  adb reverse tcp:8080 tcp:8080 >/dev/null 2>&1 || true
+  adb reverse tcp:8082 tcp:8082 >/dev/null 2>&1 || true
+  HOST="${DEV_SERVER_HOST:-127.0.0.1}"
 fi
 
 if [[ -z "${HOST}" ]]; then
-  echo "Set DEV_SERVER_HOST to your Mac LAN IP (e.g. 192.168.0.109) for a physical device."
+  echo "Set DEV_SERVER_HOST (e.g. 127.0.0.1 with USB, or Mac LAN IP on Wi‑Fi only)."
   exit 1
 fi
 

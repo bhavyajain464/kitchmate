@@ -33,9 +33,13 @@ jobs:
               - 'backend/**'
             frontend:
               - 'frontend/kitchenai-frontend/**'
+              - 'frontend/package.json'
+              - 'frontend/package-lock.json'
             restaurant:
               - 'frontend/kitchenai-restaurant/**'
               - 'frontend/packages/api-core/**'
+              - 'frontend/package.json'
+              - 'frontend/package-lock.json'
             ci:
               - '.github/workflows/ci.yml'
 
@@ -81,13 +85,14 @@ jobs:
         with:
           node-version: '20'
           cache: npm
-          cache-dependency-path: frontend/kitchenai-frontend/package-lock.json
+          cache-dependency-path: frontend/package-lock.json
 
       - name: Install dependencies
+        working-directory: frontend
         run: npm ci
 
       - name: Expo Doctor
-        run: npm run doctor
+        run: bash ../scripts/ci-expo-doctor.sh
 
       - name: TypeScript
         run: npm run typecheck
@@ -115,7 +120,7 @@ jobs:
         run: npm ci
 
       - name: Expo Doctor
-        run: npm run doctor
+        run: bash ../scripts/ci-expo-doctor.sh
 
       - name: TypeScript
         run: npm run typecheck
@@ -137,7 +142,7 @@ jobs:
         with:
           node-version: '20'
           cache: npm
-          cache-dependency-path: frontend/kitchenai-frontend/package-lock.json
+          cache-dependency-path: frontend/package-lock.json
 
       - uses: actions/setup-java@v4
         with:
@@ -152,6 +157,7 @@ jobs:
           sdkmanager "platforms;android-35" "build-tools;35.0.0"
 
       - name: Install dependencies
+        working-directory: frontend
         run: npm ci
 
       - name: Verify Android release prebuild

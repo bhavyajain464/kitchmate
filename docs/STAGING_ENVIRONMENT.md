@@ -91,7 +91,21 @@ DOTENV_CONFIG_PATH=staging.env npm run web
 
 - Redis, Kafka, Groq/Gemini keys, Google OAuth clients (with extra redirect URI for develop preview)
 
-**Staging database:** `rasoibuddy-staging` on the same Oracle Cloud Postgres host as production (`kitch-mate`). GCP secret `database-url-staging` → staging Cloud Run only.
+**Staging database:** `rasoibuddy-staging` on the same Oracle Cloud Postgres host as production (`kitch-mate`). Cloud Run staging reads **all secrets from the GitHub Environment `staging`** (not GCP Secret Manager).
+
+Upload or refresh them from `backend/.env` (plus Kafka CA PEM):
+
+```bash
+# one-time: ensure gh can call api.github.com
+gh auth refresh -h github.com -s repo,workflow
+
+cd backend
+KAFKA_CA_PEM_FILE=~/Downloads/ca.pem ./scripts/upload_secrets_github.sh staging
+# when ready for prod (use a production DATABASE_URL in .env first):
+# KAFKA_CA_PEM_FILE=~/Downloads/ca.pem ./scripts/upload_secrets_github.sh production
+```
+
+Required Environment secrets: `DATABASE_URL`, `GEMINI_API_KEY`, `GOOGLE_VISION_API_KEY`, `GROQ_API_KEY`, `SESSION_TOKEN_SECRET`, `REDIS_URL`, `KAFKA_PASSWORD`, `KAFKA_CA_PEM`, Razorpay staging keys, `SMTP_PASS`.
 
 To refresh staging data from production:
 
@@ -99,3 +113,33 @@ To refresh staging data from production:
 pg_dump "postgresql://kitch_admin:…@140.245.26.151:5432/kitch-mate?sslmode=disable" --no-owner --no-acl \
   | psql "postgresql://kitch_admin:…@140.245.26.151:5432/rasoibuddy-staging?sslmode=disable" -q
 ```
+
+## Staging API test suite
+
+HTTP contract tests live in `backend/tests/stagingapi/` (Go build tag `staging`). **Default target is local** `http://localhost:8080` (loads `backend/.env` for `DATABASE_URL` / `SESSION_TOKEN_SECRET` and mints a session for any existing user).
+
+```bash
+cd backend
+# start API in another terminal: go run ./cmd/api
+./test_staging_api.sh
+
+# Cloud Run staging instead:
+STAGING_BASE_URL=staging STAGING_AUTH_TOKEN='eyJ...' ./test_staging_api.sh
+# or: STAGING_BASE_URL=https://kitchenai-backend-staging-208103249970.asia-south1.run.app ...
+```
+
+Optional coverage:
+
+| Env | Effect |
+| --- | --- |
+| `ADMIN_API_KEY` | Admin route checks |
+| `STAGING_INCLUDE_RESTAURANT=1` | Partner/restaurant kitchen-scoped routes (off by default) |
+| `STAGING_RESTAURANT_KITCHEN_ID` | Restaurant kitchen when restaurant suite is enabled |
+| `STAGING_INCLUDE_LLM=1` | LLM-backed meal/WhatsApp/bill-scan routes |
+| `STAGING_INCLUDE_ADMIN_WRITE=1` | Mutating admin catalog/cache routes |
+| `STAGING_INCLUDE_DEEP=1` | Multi-step journeys (bill→inventory, purchase, WhatsApp apply, onboarding, billing order, diet loop, commerce) — on by default for localhost |
+| `STAGING_INCLUDE_SIDE_EFFECTS=1` | Diet email send-test + panel push send (off by default) |
+
+Live bill-scan fixtures (used when LLM + deep are on): `backend/tests/stagingapi/testdata/swiggy_bill.pdf` and `bill.webp`.
+
+Manual CI: GitHub Actions → **Staging API suite** (`workflow_dispatch`). Configure secrets `STAGING_AUTH_TOKEN` (or `STAGING_USER_ID` + `STAGING_DATABASE_URL` + `STAGING_SESSION_TOKEN_SECRET`), plus optional admin/restaurant kitchen secrets.

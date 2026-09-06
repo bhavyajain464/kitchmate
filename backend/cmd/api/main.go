@@ -26,24 +26,6 @@ import (
 	"github.com/gorilla/mux"
 )
 
-func corsMiddleware(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		log.Printf("%s %s (Origin: %s)", r.Method, r.URL.Path, r.Header.Get("Origin"))
-
-		w.Header().Set("Access-Control-Allow-Origin", "*")
-		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, DELETE, OPTIONS")
-		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Razorpay-Signature, X-Admin-Key, X-App-Platform, X-App-Version, X-App-Build, X-Zomato-Worker-Secret")
-		w.Header().Set("Access-Control-Max-Age", "300")
-
-		if r.Method == "OPTIONS" {
-			w.WriteHeader(http.StatusNoContent)
-			return
-		}
-
-		next.ServeHTTP(w, r)
-	})
-}
-
 func main() {
 	if err := godotenv.Load(); err != nil {
 		log.Printf("no .env file loaded (%v); using process environment only", err)
@@ -94,8 +76,17 @@ func main() {
 	cookedLogSvc := services.NewCookedLogService(sqlDB, redisClient)
 	mealOfDayCache := services.NewMealOfDayCache(redisClient)
 	mealPlanCache := services.NewMealPlanCache(redisClient, cfg.MealPlanCacheTTL)
+	if err := services.EnsureMealNutritionSchema(sqlDB); err != nil {
+		log.Printf("cooked_meal_nutrition schema ensure failed: %v", err)
+	}
 	dietDigestSvc := services.NewDietDigestService(sqlDB, cookedLogSvc, cfg)
 	services.StartNightlyDigestScheduler(dietDigestSvc)
+	pushSvc := services.NewPushNotificationService(sqlDB, cfg)
+	if cfg.ExpoPushConfigured() {
+		log.Printf("Expo push notifications enabled (panel /admin send)")
+	} else {
+		log.Printf("Expo push send disabled (set EXPO_ACCESS_TOKEN to enable marketing push)")
+	}
 	handlers.StartMealOfDayScheduler(sqlDB, cfg, cookedLogSvc, mealOfDayCache)
 	handlers.StartWeekPlanScheduler(sqlDB, cfg, cookedLogSvc, mealPlanCache)
 
@@ -105,11 +96,12 @@ func main() {
 	kafkaProducer := kafkalib.NewProducer(cfg)
 	if kafkaProducer != nil {
 		defer kafkaProducer.Close()
+		cookedLogSvc.SetDietAnalysisPublisher(kafkalib.DietAnalysisPublisherAdapter{Producer: kafkaProducer})
 	}
 	kafkalib.StartShelfLifeConsumer(sqlDB, cfg)
+	kafkalib.StartDietAnalysisConsumer(sqlDB, cfg)
 
 	router := mux.NewRouter()
-	router.Use(corsMiddleware)
 
 	api := router.PathPrefix("/api/v1").Subrouter()
 	api.Use(middleware.AuthMiddleware(authService))
@@ -167,6 +159,11 @@ func main() {
 	// Freemium entitlements (plan, bill scan usage, meal category access)
 	api.Handle("/entitlements", middleware.RequireAuth(http.HandlerFunc(handlers.GetEntitlements(sqlDB)))).Methods("GET", "OPTIONS")
 
+	api.Handle("/notifications/push-token", middleware.RequireAuth(http.HandlerFunc(handlers.RegisterPushToken(pushSvc)))).Methods("POST", "OPTIONS")
+	api.Handle("/notifications/push-token", middleware.RequireAuth(http.HandlerFunc(handlers.DeletePushToken(pushSvc)))).Methods("DELETE", "OPTIONS")
+	api.Handle("/notifications/preferences", middleware.RequireAuth(http.HandlerFunc(handlers.GetPushPreferences(pushSvc)))).Methods("GET", "OPTIONS")
+	api.Handle("/notifications/preferences", middleware.RequireAuth(http.HandlerFunc(handlers.UpdatePushPreferences(pushSvc)))).Methods("PUT", "OPTIONS")
+
 	billingSvc := services.NewBillingService(sqlDB, cfg.Razorpay)
 	billingHandler := handlers.NewBillingHandler(billingSvc, cfg.Razorpay)
 	api.Handle("/billing/config", middleware.RequireAuth(http.HandlerFunc(billingHandler.GetBillingConfig()))).Methods("GET", "OPTIONS")
@@ -203,6 +200,7 @@ func main() {
 	panel.Handle("/catalog/pair-aliases", panelGuard(handlers.AdminRegisterPairLabelAlias(sqlDB))).Methods("POST", "OPTIONS")
 	panel.Handle("/catalog/pair-aliases", panelGuard(handlers.AdminDeletePairLabelAlias(sqlDB))).Methods("DELETE", "OPTIONS")
 	panel.Handle("/catalog/dishes", panelGuard(handlers.AdminUpsertCatalogDish(sqlDB))).Methods("POST", "OPTIONS")
+	panel.Handle("/push/send", panelGuard(http.HandlerFunc(handlers.PanelSendPush(pushSvc)))).Methods("POST", "OPTIONS")
 	if len(cfg.AdminPanelEmails) > 0 {
 		log.Printf("Ops panel API enabled at /api/v1/panel/* (%d allowlisted emails)", len(cfg.AdminPanelEmails))
 	} else {
@@ -290,7 +288,7 @@ func main() {
 	}).Methods("GET")
 
 	srv := &http.Server{
-		Handler:      router,
+		Handler:      middleware.CORS(router),
 		Addr:         ":" + cfg.Port,
 		WriteTimeout: 60 * time.Second,
 		ReadTimeout:  15 * time.Second,

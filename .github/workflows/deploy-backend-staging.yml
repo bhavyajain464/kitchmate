@@ -1,6 +1,7 @@
 name: Deploy backend to Cloud Run (staging)
 
 # Staging only: develop branch. Never deploys production Cloud Run.
+# Secrets come from the GitHub Environment "staging" (or repo secrets of the same name).
 on:
   push:
     branches: [develop]
@@ -21,12 +22,14 @@ env:
   PROJECT_ID: kitchmate-495620
   REGION: asia-south1
   SERVICE: kitchenai-backend-staging
-  IMAGE: gcr.io/kitchmate-495620/kitchenai-backend-staging
+  # Mumbai Artifact Registry (not legacy gcr.io/us)
+  IMAGE: asia-south1-docker.pkg.dev/kitchmate-495620/kitchenai/backend-staging
 
 jobs:
   deploy:
     if: github.ref == 'refs/heads/develop'
     runs-on: ubuntu-latest
+    environment: staging
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -42,8 +45,8 @@ jobs:
         with:
           project_id: ${{ env.PROJECT_ID }}
 
-      - name: Configure Docker auth for GCR
-        run: gcloud auth configure-docker gcr.io --quiet
+      - name: Configure Docker auth for Artifact Registry
+        run: gcloud auth configure-docker asia-south1-docker.pkg.dev --quiet
 
       - name: Build container image
         working-directory: backend
@@ -59,50 +62,100 @@ jobs:
 
       - name: Deploy to Cloud Run (staging)
         env:
-          RUN_SECRETS: >-
-            /secrets/kafka-ca.pem=kafka-ca-pem:latest,
-            DATABASE_URL=database-url-staging:latest,
-            GEMINI_API_KEY=gemini-api-key:latest,
-            GOOGLE_VISION_API_KEY=google-vision-api-key:latest,
-            GROQ_API_KEY=groq-api-key:latest,
-            SESSION_TOKEN_SECRET=session-token-secret:latest,
-            REDIS_URL=redis-url:latest,
-            KAFKA_PASSWORD=kafka-sasl-password:latest,
-            RAZORPAY_KEY_ID_STAGING=razorpay-key-id-staging:latest,
-            RAZORPAY_KEY_SECRET_STAGING=razorpay-key-secret-staging:latest,
-            RAZORPAY_WEBHOOK_SECRET_STAGING=razorpay-webhook-secret-staging:latest,
-            SMTP_PASS=smtp-pass:latest
-          RUN_ENV_VARS: >-
-            ENVIRONMENT=staging#
-            GEMINI_MODEL=gemini-2.5-flash-lite#
-            LLM_PROVIDER=groq#
-            GROQ_MODEL=openai/gpt-oss-120b#
-            GROQ_NLU_MODEL=openai/gpt-oss-120b#
-            RAZORPAY_ENV=staging#
-            SMTP_HOST=smtp.gmail.com#
-            SMTP_PORT=587#
-            SMTP_USER=kitchmateai@gmail.com#
-            SMTP_FROM=Rasoibuddy <kitchmateai@gmail.com>#
-            WHATSAPP_TEST_MODE=true#
-            GOOGLE_WEB_CLIENT_ID=208103249970-qg4bv6ilknfe52eqks8u662hp3toneua.apps.googleusercontent.com#
-            GOOGLE_IOS_CLIENT_ID=208103249970-5j9v2282v0f9r0d8859shqmnurpc93lp.apps.googleusercontent.com#
-            GOOGLE_ANDROID_CLIENT_ID=208103249970-ssbd98i8gqndd1o10vbaa6e5nfhkfcft.apps.googleusercontent.com#
-            KAFKA_ENABLED=true#
-            KAFKA_BROKERS=kafka-2ee49b67-bhavyajain464-358c.d.aivencloud.com:24210#
-            KAFKA_TOPIC_SHELFLIFE=shelf-life-estimate#
-            KAFKA_CA_FILE=/secrets/kafka-ca.pem#
-            KAFKA_SASL_ENABLED=true#
-            KAFKA_SASL_MECHANISM=PLAIN#
-            KAFKA_USERNAME=avnadmin#
-            KAFKA_TLS_ENABLED=true#
-            API_PUBLIC_URL=https://kitchenai-backend-staging-208103249970.asia-south1.run.app#
-            ZOMATO_MAX_ORDERS_PER_SYNC=15#
-            COMMERCE_ENABLED=false#
-            COMMERCE_ENABLED_PARTNERS=blinkit,zepto,instamart#
-            COMMERCE_MAX_PARTNERS=3
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          GOOGLE_VISION_API_KEY: ${{ secrets.GOOGLE_VISION_API_KEY }}
+          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+          SESSION_TOKEN_SECRET: ${{ secrets.SESSION_TOKEN_SECRET }}
+          REDIS_URL: ${{ secrets.REDIS_URL }}
+          KAFKA_PASSWORD: ${{ secrets.KAFKA_PASSWORD }}
+          KAFKA_CA_PEM: ${{ secrets.KAFKA_CA_PEM }}
+          RAZORPAY_KEY_ID_STAGING: ${{ secrets.RAZORPAY_KEY_ID_STAGING }}
+          RAZORPAY_KEY_SECRET_STAGING: ${{ secrets.RAZORPAY_KEY_SECRET_STAGING }}
+          RAZORPAY_WEBHOOK_SECRET_STAGING: ${{ secrets.RAZORPAY_WEBHOOK_SECRET_STAGING }}
+          SMTP_PASS: ${{ secrets.SMTP_PASS }}
         run: |
-          # YAML >- folding turns newlines into spaces after each # delimiter.
-          RUN_ENV_VARS="$(printf '%s' "${RUN_ENV_VARS}" | tr -d '\n' | sed 's/# */#/g')"
+          python3 <<'PY'
+          import os
+          import sys
+
+          def yaml_value(s: str) -> str:
+              s = s.replace("\r\n", "\n").replace("\r", "\n")
+              if "\n" in s:
+                  lines = s.split("\n")
+                  return "|\n" + "\n".join(f"  {line}" for line in lines)
+              escaped = s.replace("\\", "\\\\").replace('"', '\\"')
+              return f'"{escaped}"'
+
+          required = [
+              "DATABASE_URL",
+              "GEMINI_API_KEY",
+              "GOOGLE_VISION_API_KEY",
+              "GROQ_API_KEY",
+              "SESSION_TOKEN_SECRET",
+              "REDIS_URL",
+              "KAFKA_PASSWORD",
+              "KAFKA_CA_PEM",
+              "RAZORPAY_KEY_ID_STAGING",
+              "RAZORPAY_KEY_SECRET_STAGING",
+              "RAZORPAY_WEBHOOK_SECRET_STAGING",
+              "SMTP_PASS",
+          ]
+          missing = [k for k in required if not os.environ.get(k)]
+          if missing:
+              print("Missing GitHub Environment secrets:", ", ".join(missing), file=sys.stderr)
+              print(
+                  "Upload with: cd backend && KAFKA_CA_PEM_FILE=/path/to/ca.pem "
+                  "./scripts/upload_secrets_github.sh staging",
+                  file=sys.stderr,
+              )
+              sys.exit(1)
+
+          static = {
+              "ENVIRONMENT": "staging",
+              "GEMINI_MODEL": "gemini-2.5-flash-lite",
+              "LLM_PROVIDER": "groq",
+              "GROQ_MODEL": "qwen/qwen3.6-27b",
+              "GROQ_NLU_MODEL": "qwen/qwen3.6-27b",
+              "RAZORPAY_ENV": "staging",
+              "SMTP_HOST": "smtp.gmail.com",
+              "SMTP_PORT": "587",
+              "SMTP_USER": "kitchmateai@gmail.com",
+              "SMTP_FROM": "Rasoibuddy <kitchmateai@gmail.com>",
+              "WHATSAPP_TEST_MODE": "true",
+              "GOOGLE_WEB_CLIENT_ID": "208103249970-qg4bv6ilknfe52eqks8u662hp3toneua.apps.googleusercontent.com",
+              "GOOGLE_IOS_CLIENT_ID": "208103249970-5j9v2282v0f9r0d8859shqmnurpc93lp.apps.googleusercontent.com",
+              "GOOGLE_ANDROID_CLIENT_ID": "208103249970-ssbd98i8gqndd1o10vbaa6e5nfhkfcft.apps.googleusercontent.com",
+              "KAFKA_ENABLED": "true",
+              "KAFKA_BROKERS": "kafka-2ee49b67-bhavyajain464-358c.d.aivencloud.com:24210",
+              "KAFKA_TOPIC_SHELFLIFE": "shelf-life-estimate",
+              "KAFKA_SASL_ENABLED": "true",
+              "KAFKA_SASL_MECHANISM": "PLAIN",
+              "KAFKA_USERNAME": "avnadmin",
+              "KAFKA_TLS_ENABLED": "true",
+              "API_PUBLIC_URL": "https://kitchenai-backend-staging-208103249970.asia-south1.run.app",
+              "ZOMATO_MAX_ORDERS_PER_SYNC": "15",
+              "COMMERCE_ENABLED": "false",
+              "COMMERCE_ENABLED_PARTNERS": "blinkit,zepto,instamart",
+              "COMMERCE_MAX_PARTNERS": "3",
+          }
+
+          with open("cloudrun-env.yaml", "w", encoding="utf-8") as f:
+              for key, value in static.items():
+                  f.write(f"{key}: {yaml_value(value)}\n")
+              for key in required:
+                  f.write(f"{key}: {yaml_value(os.environ[key])}\n")
+          print("Wrote cloudrun-env.yaml")
+          PY
+
+          # Previous deploys bound these as Secret Manager refs. Cloud Run rejects
+          # changing a secret-typed env var to a string literal in the same update.
+          gcloud run services update "${SERVICE}" \
+            --project "${PROJECT_ID}" \
+            --region "${REGION}" \
+            --clear-secrets \
+            --quiet || true
+
           gcloud run deploy "${SERVICE}" \
             --image "${IMAGE_SHA}" \
             --project "${PROJECT_ID}" \
@@ -112,8 +165,7 @@ jobs:
             --memory 256Mi \
             --cpu 1 \
             --allow-unauthenticated \
-            --set-secrets "${RUN_SECRETS}" \
-            --set-env-vars "^#^${RUN_ENV_VARS}" \
+            --env-vars-file cloudrun-env.yaml \
             --quiet
 
       - name: Show service URL

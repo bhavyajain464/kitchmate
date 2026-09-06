@@ -26,6 +26,7 @@ type BuddyChatComposerProps = {
   listening: boolean;
   paused: boolean;
   durationLabel: string;
+  voiceTranscript?: string;
   onStartRecording: () => void;
   onPauseRecording: () => void;
   onResumeRecording: () => void;
@@ -133,6 +134,7 @@ export function BuddyChatComposer({
   listening,
   paused,
   durationLabel,
+  voiceTranscript = '',
   onStartRecording,
   onPauseRecording,
   onResumeRecording,
@@ -164,7 +166,13 @@ export function BuddyChatComposer({
         <View style={styles.recordingCenter}>
           {listening ? <View style={styles.recordingDot} /> : null}
           <Text style={styles.durationText}>{durationLabel}</Text>
-          <VoiceWaveform active={listening} />
+          {voiceTranscript.trim() ? (
+            <Text style={styles.liveTranscript} numberOfLines={2}>
+              {voiceTranscript}
+            </Text>
+          ) : (
+            <VoiceWaveform active={listening} />
+          )}
         </View>
 
         {listening ? (
@@ -333,6 +341,13 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     color: palette.text,
     minWidth: 36,
+  },
+  liveTranscript: {
+    flex: 1,
+    fontSize: 14,
+    lineHeight: 18,
+    color: palette.textMuted,
+    minWidth: 0,
   },
   waveformRow: {
     flex: 1,

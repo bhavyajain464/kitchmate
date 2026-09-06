@@ -4,8 +4,9 @@ import {
   View,
   ScrollView,
   Pressable,
-  Image,
   Switch,
+  KeyboardAvoidingView,
+  Platform,
 } from 'react-native';
 import {
   Text,
@@ -29,6 +30,9 @@ import {
 import { BrandMark } from '../components/BrandMark';
 import { BRAND_MOTTO_LINES } from '../constants/brand';
 import { markPostOnboardingTourPending } from '../utils/productTourStorage';
+import { OptimizedImage } from '../components/OptimizedImage';
+import { keyboardAvoidingBehavior } from '../utils/keyboardAvoidance';
+import { useKeyboardHeight } from '../hooks/useKeyboardHeight';
 
 const INTRO_STEPS = [
   {
@@ -91,6 +95,7 @@ interface OnboardingScreenProps {
 
 export function OnboardingScreen({ onComplete }: OnboardingScreenProps) {
   const insets = useSafeAreaInsets();
+  const keyboardHeight = useKeyboardHeight();
   const [step, setStep] = useState(0);
   const [saving, setSaving] = useState(false);
   const [joiningKitchen, setJoiningKitchen] = useState(false);
@@ -210,7 +215,14 @@ export function OnboardingScreen({ onComplete }: OnboardingScreenProps) {
   const totalInventoryCount = autoStaples.length + regionalSelectedCount;
   const autoCategoryPills = useMemo(() => getAutoStapleCategoryPills(autoStaples), [autoStaples]);
 
+  const scrollBottomPad = keyboardHeight > 0 ? 16 : 0;
+
   return (
+    <KeyboardAvoidingView
+      style={styles.container}
+      behavior={keyboardAvoidingBehavior()}
+      keyboardVerticalOffset={Platform.OS === 'ios' ? insets.top : 0}
+    >
     <View style={[styles.container, styles.containerWelcome]}>
       {step === 0 && (
         <View
@@ -301,9 +313,14 @@ export function OnboardingScreen({ onComplete }: OnboardingScreenProps) {
 
             <ScrollView
               style={styles.cardBodyScroll}
-              contentContainerStyle={styles.cardBodyContent}
+              contentContainerStyle={[
+                styles.cardBodyContent,
+                scrollBottomPad ? { paddingBottom: scrollBottomPad } : null,
+              ]}
               showsVerticalScrollIndicator={false}
               keyboardShouldPersistTaps="handled"
+              keyboardDismissMode="on-drag"
+              automaticallyAdjustKeyboardInsets
             >
               <OnboardingPreferencesForm
                 householdSize={householdSize}
@@ -403,9 +420,14 @@ export function OnboardingScreen({ onComplete }: OnboardingScreenProps) {
 
             <ScrollView
               style={styles.cardBodyScroll}
-              contentContainerStyle={styles.cardBodyContent}
+              contentContainerStyle={[
+                styles.cardBodyContent,
+                scrollBottomPad ? { paddingBottom: scrollBottomPad } : null,
+              ]}
               showsVerticalScrollIndicator={false}
               keyboardShouldPersistTaps="handled"
+              keyboardDismissMode="on-drag"
+              automaticallyAdjustKeyboardInsets
             >
               {kitchenTab === 'fresh' ? (
                 <>
@@ -444,7 +466,7 @@ export function OnboardingScreen({ onComplete }: OnboardingScreenProps) {
                           ]}
                         >
                           {image ? (
-                            <Image
+                            <OptimizedImage
                               source={image}
                               style={[styles.regionalThumb, !item.selected && styles.stapleThumbMuted]}
                               accessibilityIgnoresInvertColors
@@ -568,6 +590,7 @@ export function OnboardingScreen({ onComplete }: OnboardingScreenProps) {
         </View>
       )}
     </View>
+    </KeyboardAvoidingView>
   );
 }
 

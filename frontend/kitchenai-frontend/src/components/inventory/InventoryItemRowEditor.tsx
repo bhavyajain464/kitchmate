@@ -3,7 +3,6 @@ import { Pressable, StyleSheet, View } from 'react-native';
 import { Icon } from 'react-native-paper';
 import { ExpiryDateBox } from '../ExpiryDateBox';
 import { IngredientNamePicker } from '../IngredientNamePicker';
-import { ItemNameBox } from '../UnitPillSelector';
 import { QtyUnitStrip } from '../QtyUnitStrip';
 import { CatalogIngredient, ItemCatalog } from '../../types';
 import { coerceUnit, resolveCatalogItem, unitsForCatalogItem } from '../../utils/ingredientUnits';
@@ -111,37 +110,30 @@ function NameField({
   autoFocus?: boolean;
   style?: object;
 }) {
-  if (catalog?.length) {
-    return (
-      <IngredientNamePicker
-        catalog={catalog}
-        value={row.name}
-        ingredientId={row.ingredientId}
-        onChangeText={(name) => onUpdate({ name, ingredientId: undefined, foodGroup: undefined })}
-        onSelect={(pick) =>
-          onUpdate({
-            name: pick.ingredient_name,
-            unit: pick.unit,
-            ingredientId: pick.ingredient_id,
-            foodGroup: pick.food_group,
-          })
-        }
-        label="Name"
-        placeholder="Search ingredients…"
-        compact
-        autoFocus={autoFocus}
-        style={style}
-      />
-    );
-  }
+  const pickerCatalog =
+    catalog?.length ? catalog : row.catalog ? [row.catalog as CatalogIngredient] : [];
 
   return (
-    <ItemNameBox
-      label="Name"
+    <IngredientNamePicker
+      catalog={pickerCatalog}
       value={row.name}
-      onChangeText={(name) => onUpdate({ name })}
-      placeholder="Item name"
+      ingredientId={row.ingredientId}
+      onChangeText={(name) =>
+        onUpdate({ name, ingredientId: undefined, foodGroup: undefined, catalog: undefined })
+      }
+      onSelect={(pick) =>
+        onUpdate({
+          name: pick.ingredient_name,
+          unit: pick.unit,
+          ingredientId: pick.ingredient_id,
+          foodGroup: pick.food_group,
+          catalog: pick.catalog,
+        })
+      }
+      label="Name"
+      placeholder="Search ingredients…"
       compact
+      autoFocus={autoFocus}
       style={style}
     />
   );

@@ -360,7 +360,27 @@ export function HomeScreen({ navigation }: any) {
                   </Surface>
                 </Pressable>
               ) : (
-                <View style={styles.pantryTourAnchor} />
+                <Pressable
+                  onPress={() => navigation.navigate('Inventory')}
+                  style={({ pressed }) => [styles.freshPantry, pressed && styles.freshPantryPressed]}
+                >
+                  <Surface style={styles.freshPantryCard} elevation={1}>
+                    <View style={styles.freshPantryIconWrap}>
+                      <Icon source="check-decagram" size={26} color={palette.primary} />
+                    </View>
+                    <View style={styles.freshPantryText}>
+                      <Text variant="titleSmall" style={styles.freshPantryTitle}>
+                        {t('home.freshPantryTitle')}
+                      </Text>
+                      <Text variant="bodySmall" style={styles.freshPantrySub}>
+                        {t('home.freshPantrySub', { count: pantryTotal })}
+                      </Text>
+                    </View>
+                    <View style={styles.freshPantryBadge}>
+                      <Text style={styles.freshPantryBadgeText}>{t('home.freshPantryBadge')}</Text>
+                    </View>
+                  </Surface>
+                </Pressable>
               )}
             </TourTarget>
           )}
@@ -632,10 +652,62 @@ const styles = StyleSheet.create({
     marginTop: 4,
     textAlign: 'center',
   },
-  pantryTourAnchor: {
-    height: 1,
+  freshPantry: {
     marginHorizontal: 24,
     marginTop: 16,
     marginBottom: 20,
+  },
+  freshPantryPressed: {
+    opacity: 0.94,
+    transform: [{ scale: 0.995 }],
+  },
+  freshPantryCard: {
+    borderRadius: 16,
+    paddingHorizontal: 14,
+    paddingVertical: 14,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    backgroundColor: palette.primaryContainerLight,
+    borderWidth: 1,
+    borderColor: palette.primaryContainerDark,
+  },
+  freshPantryIconWrap: {
+    width: 44,
+    height: 44,
+    borderRadius: 14,
+    backgroundColor: palette.primaryContainer,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  freshPantryText: {
+    flex: 1,
+    minWidth: 0,
+  },
+  freshPantryTitle: {
+    fontWeight: '800',
+    color: palette.primaryDark,
+    lineHeight: 20,
+  },
+  freshPantrySub: {
+    color: palette.primary,
+    marginTop: 3,
+    lineHeight: 18,
+    fontWeight: '500',
+  },
+  freshPantryBadge: {
+    backgroundColor: palette.primaryContainer,
+    borderRadius: 999,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderWidth: 1,
+    borderColor: palette.primarySoft,
+  },
+  freshPantryBadgeText: {
+    color: palette.primaryDark,
+    fontSize: 11,
+    fontWeight: '800',
+    letterSpacing: 0.2,
+    textTransform: 'uppercase',
   },
 });

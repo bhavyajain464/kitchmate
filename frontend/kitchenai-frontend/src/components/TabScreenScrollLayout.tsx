@@ -8,6 +8,7 @@ import {
   type StyleProp,
   type ViewStyle,
 } from 'react-native';
+import { keyboardAwareScrollViewProps } from '../utils/keyboardAvoidance';
 
 type TabScreenScrollLayoutProps = {
   scrollRef?: React.RefObject<ScrollView | null>;
@@ -50,7 +51,9 @@ export function TabScreenScrollLayout({
         contentContainerStyle={contentContainerStyle}
         refreshControl={refreshControl}
         showsVerticalScrollIndicator={showsVerticalScrollIndicator}
-        keyboardShouldPersistTaps={keyboardShouldPersistTaps}
+        keyboardShouldPersistTaps={keyboardShouldPersistTaps ?? keyboardAwareScrollViewProps.keyboardShouldPersistTaps}
+        keyboardDismissMode={keyboardAwareScrollViewProps.keyboardDismissMode}
+        automaticallyAdjustKeyboardInsets={keyboardAwareScrollViewProps.automaticallyAdjustKeyboardInsets}
         onScroll={onScroll}
         scrollEventThrottle={scrollEventThrottle}
       >
